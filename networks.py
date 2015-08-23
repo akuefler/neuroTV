@@ -4,6 +4,13 @@ import math
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
+import csv
+import time
+
+from numpy import genfromtxt
+
+plt.ion()
+
 class NodePatch(mpl.patches.Ellipse):
     def __init__(self, node, xy, width, height, **kwargs):
         self.node = node
@@ -28,6 +35,7 @@ class Neuron(Node):
 
         #Links to the patch object created from this neuron.
         self.patch = None
+        self.in_lines = {}
 
         #Attributes used in learning
         self.rate = learning_rate
@@ -65,7 +73,7 @@ class NeuralNet(object):
         for i, num_nodes in enumerate(layer_specs):
             layer = []
             for j in range(num_nodes):
-                neuron = Neuron(sigmoid, 0.95)
+                neuron = Neuron(sigmoid, 0.6)
                 neuron.coords = (i, j)
 
                 #Unless this is the input layer, connect each neuron to every neuron on the afferent layer.
@@ -105,6 +113,10 @@ class NeuralNet(object):
 
             for in_node, weight in neuron.in_synapses.items():
                 neuron.in_synapses[in_node] = weight + neuron.rate * neuron.error * in_node.activation
+                try:
+                    neuron.in_lines[in_node].set_linewidth(2*abs(neuron.in_synapses[in_node]))
+                except KeyError:
+                    pass
 
         #Update weights for all hidden layers.
         reversed_layers = list(reversed(self.layers))
@@ -124,6 +136,10 @@ class NeuralNet(object):
                 #Update weights
                 for aff_node, weight in neuron.in_synapses.items():
                     neuron.in_synapses[aff_node] = weight + neuron.rate * neuron.error * aff_node.activation
+                    try:
+                        neuron.in_lines[aff_node].set_linewidth(2*abs(neuron.in_synapses[aff_node]))
+                    except KeyError:
+                        pass
 
 class Visualizer(object):
     def __init__(self, model):
@@ -134,6 +150,9 @@ class Visualizer(object):
 
         depth = model.depth
         network_width = max([len(x) for x in model.layers])
+
+        self.ax.set_xlim((-network_width/2, network_width/2))
+        self.ax.set_ylim((-0.5, depth-0.5))
 
         for layer in model.layers:
             for node in layer:
@@ -148,10 +167,10 @@ class Visualizer(object):
                     else:
                         color = [1, 0, 0]
 
-                    l = self.ax.plot([h.x, aff_node.patch.x], [h.y, aff_node.patch.y], color= color)
-                    #l.set_picker(1.5)
+                    node.in_lines[aff_node] = mpl.lines.Line2D([h.x, aff_node.patch.x], [h.y, aff_node.patch.y],
+                                         linewidth= abs(weight), color= color)
 
-
+                    self.ax.add_artist(node.in_lines[aff_node])
 
 
     def coords_to_pos(self, coords, layer):
@@ -169,11 +188,53 @@ class Visualizer(object):
 def sigmoid(x):
     return 1/(1 + math.e**(-x))
 
-nn = NeuralNet([4, 5, 3])
+def load_data(filename, target_length = None):
+    obs_mat = []
+    labels = []
 
-feature_vec = [0.3, 2, 0.6, 0.6]
+    with open(filename) as f:
+        for line in f:
+
+            list_line = line.strip().split(',')
+            if list_line[0] == '':
+                continue
+
+            if target_length is not None:
+                labels.append(list_line[-1])
+                list_line = list_line[0:-1]
+
+            row = [float(x) for x in list_line]
+            obs_mat.append(row)
+
+    if target_length is not None:
+        classes = set(labels)
+        class_codes = dict(zip(classes, np.eye(target_length).tolist()))
+
+        targets = []
+        for label in labels:
+            targets.append(class_codes[label])
+
+        targets = np.array(targets)
+
+        return [obs_mat, targets]
+
+    return obs_mat
+
+
+#my_data = genfromtxt('iris_data.txt', delimiter=',')
+[X, targets] = load_data('iris_data.txt', target_length= 3)
+
+nn = NeuralNet([4, 5, 3])
 
 vis = Visualizer(nn)
 
+#for j in range(100):
+for pss in range(100):
+    print(pss)
+    for i, instance in enumerate(X):
+        plt.draw()
+        time.sleep(0.1)
+        nn.feedforward(instance)
+        nn.backpropagate(targets[i])
 
 halt = True
