@@ -11,12 +11,22 @@ from numpy import genfromtxt
 
 plt.ion()
 
-class NodePatch(mpl.patches.Ellipse):
-    def __init__(self, node, xy, width, height, **kwargs):
+class NodeArt(mpl.lines.Line2D):
+    def __init__(self, node, xy, **kwargs):
         self.node = node
         self.x = xy[0]
         self.y = xy[1]
-        mpl.patches.Ellipse.__init__(self, xy, width, height, **kwargs)
+
+        if node.bias == True:
+            marker = 'h'
+            ms = 25
+        else:
+            marker = 'o'
+            ms = 35
+
+        mpl.lines.Line2D.__init__(self, [self.x], [self.y], marker= marker,
+                                  markeredgewidth= 2.5, markersize= ms, **kwargs)
+
 
 class EdgeLine(mpl.lines.Line2D):
     def __init__(self, edge, x1, y1, x2, y2, **kwargs):
@@ -49,14 +59,15 @@ class Synapse(Edge):
 
 
 class Neuron(Node):
-    def __init__(self, transfer_func, learning_rate):
+    def __init__(self, transfer_func, learning_rate, bias = False):
 
         self.activation = 0
         self.in_synapses = []
         self.transfer = transfer_func
+        self.bias = bias
 
-        #Links to the patch object created from this neuron.
-        self.patch = None
+        #Links to the artist created from this neuron.
+        self.art = None
 
         #Attributes used in learning
         self.rate = learning_rate
@@ -82,12 +93,13 @@ class Neuron(Node):
 
 
 class NeuralNet(object):
-    def __init__(self, layer_specs):
+    def __init__(self, layer_specs, bias_on= False):
         self.depth = len(layer_specs)
         if self.depth < 3:
             raise ValueError("Network must consist of at least 3 layers.")
 
         self.layers = []
+        self.bias_on = bias_on
 
         #Arrange all the nodes in their layers.
         afferent_layer = None
@@ -106,8 +118,21 @@ class NeuralNet(object):
 
             self.layers.append(layer)
 
+        #Include bias nodes.
+        if bias_on:
+            for layer in self.layers[0:-1]:
+                bias = Neuron(sigmoid, 0.6, bias= True)
+                bias.activation = 1
+                bias.coords = (self.layers.index(layer), len(layer))
+
+                layer.append(bias)
+                for neuron in self.layers[self.layers.index(layer) + 1]:
+                    neuron.in_synapses.append(Synapse(bias, np.random.randn()))
+
+
     def feedforward(self, input_vector):
-        if len(input_vector) != len(self.layers[0]):
+
+        if len(input_vector) + int(self.bias_on) != len(self.layers[0]):
             raise ValueError("Mismatch in length of input layer and input vector.")
 
         for i in range(len(input_vector)):
@@ -185,9 +210,9 @@ class Visualizer(object):
         for layer in model.layers:
             for node in layer:
                 [x, y] = self.coords_to_pos(node.coords, layer)
-                node.patch = NodePatch(node, [x, y], 0.3, 0.3,
-                                       edgecolor='k', facecolor= 'w', linewidth= 2, zorder= 10)
-                h = self.ax.add_artist(node.patch)
+                node.art = NodeArt(node, [x, y],
+                                       color='k', markerfacecolor= 'w', zorder= 10)
+                h = self.ax.add_artist(node.art)
                 h.set_picker(1.5)
 
                 for synapse in node.in_synapses:
@@ -196,7 +221,7 @@ class Visualizer(object):
                     else:
                         color = [1, 0, 0]
 
-                    synapse.line = EdgeLine(synapse, h.x, synapse.node.patch.x, h.y, synapse.node.patch.y,
+                    synapse.line = EdgeLine(synapse, h.x, synapse.node.art.x, h.y, synapse.node.art.y,
                                             linewidth= abs(synapse.weight), color= color, zorder= 1)
 
                     self.ax.add_artist(synapse.line)
@@ -251,11 +276,11 @@ def load_data(filename, target_length = None):
 
 [X, targets] = load_data('iris_data.txt', target_length= 3)
 
-nn = NeuralNet([4, 5, 3])
+nn = NeuralNet([4, 5, 3], bias_on= True)
 
 vis = Visualizer(nn)
 
-for pss in range(25):
+for pss in range(5):
     print(pss)
     for i, instance in enumerate(X):
         plt.draw()
