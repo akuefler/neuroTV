@@ -18,24 +18,45 @@ class NodePatch(mpl.patches.Ellipse):
         self.y = xy[1]
         mpl.patches.Ellipse.__init__(self, xy, width, height, **kwargs)
 
+class EdgeLine(mpl.lines.Line2D):
+    def __init__(self, edge, x1, y1, x2, y2, **kwargs):
+        self.edge = edge
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+        mpl.lines.Line2D.__init__(self, [x1, y1], [x2, y2],
+                 **kwargs)
+
 
 class Node(object):
+    #abstract base class
+    pass
+
+class Edge(object):
     #abstract base class
     pass
 
 class Leaf(Node):
     pass
 
+class Synapse(Edge):
+    def __init__(self, presyn_node, weight):
+        self.node = presyn_node
+        self.weight = weight
+
+        self.line = None
+
+
 class Neuron(Node):
     def __init__(self, transfer_func, learning_rate):
 
         self.activation = 0
-        self.in_synapses = {}
+        self.in_synapses = []
         self.transfer = transfer_func
 
         #Links to the patch object created from this neuron.
         self.patch = None
-        self.in_lines = {}
 
         #Attributes used in learning
         self.rate = learning_rate
@@ -48,8 +69,8 @@ class Neuron(Node):
 
     def sum_inputs(self):
         val = 0.0
-        for node, weight in self.in_synapses.items():
-            val += weight*node.activation
+        for synapse in self.in_synapses:
+            val += synapse.weight * synapse.node.activation
 
         self.activation = self.transfer(val)
 
@@ -78,8 +99,8 @@ class NeuralNet(object):
 
                 #Unless this is the input layer, connect each neuron to every neuron on the afferent layer.
                 if i != 0:
-                    neuron.in_synapses = dict(zip(self.layers[i - 1],
-                                                  np.random.randn(1, len(self.layers[i - 1])).tolist()[0]))
+                    neuron.in_synapses = [Synapse(node, np.random.randn())
+                                          for node in self.layers[i-1]]
 
                 layer.append(neuron)
 
@@ -111,11 +132,15 @@ class NeuralNet(object):
             neuron = self.layers[-1][i]
             neuron.error = neuron.activation*(1 - neuron.activation)*(target_vector[i] - neuron.activation)
 
-            for in_node, weight in neuron.in_synapses.items():
-                neuron.in_synapses[in_node] = weight + neuron.rate * neuron.error * in_node.activation
+            for synapse in neuron.in_synapses:
+                synapse.weight += neuron.rate * neuron.error * synapse.node.activation
                 try:
-                    neuron.in_lines[in_node].set_linewidth(2*abs(neuron.in_synapses[in_node]))
-                except KeyError:
+                    synapse.line.set_linewidth(2*abs(synapse.weight))
+                    if synapse.weight < 0:
+                        synapse.line.set_color([0, 0, 1])
+                    else:
+                        synapse.line.set_color([1, 0, 0])
+                except AttributeError:
                     pass
 
         #Update weights for all hidden layers.
@@ -124,21 +149,24 @@ class NeuralNet(object):
             efferent_layer = reversed_layers[reversed_layers.index(layer) - 1]
 
             for neuron in layer:
-
                 #Sum the error across downstream neurons connected to this one.
                 sum_eff_error = 0.0
                 for eff_node in efferent_layer:
-                    if neuron in eff_node.in_synapses.keys():
-                        sum_eff_error += eff_node.error*eff_node.in_synapses[neuron]
+                    if synapse in eff_node.in_synapses:
+                        sum_eff_error += eff_node.error*synapse.weight
 
                 neuron.error = neuron.activation*(1 - neuron.activation)*sum_eff_error
 
                 #Update weights
-                for aff_node, weight in neuron.in_synapses.items():
-                    neuron.in_synapses[aff_node] = weight + neuron.rate * neuron.error * aff_node.activation
+                for synapse in neuron.in_synapses:
+                    synapse.weight += neuron.rate * neuron.error * synapse.node.activation
                     try:
-                        neuron.in_lines[aff_node].set_linewidth(2*abs(neuron.in_synapses[aff_node]))
-                    except KeyError:
+                        synapse.line.set_linewidth(2*abs(synapse.weight))
+                        if synapse.weight < 0:
+                            synapse.line.set_color([0, 0, 1])
+                        else:
+                            synapse.line.set_color([1, 0, 0])
+                    except AttributeError:
                         pass
 
 class Visualizer(object):
@@ -157,20 +185,21 @@ class Visualizer(object):
         for layer in model.layers:
             for node in layer:
                 [x, y] = self.coords_to_pos(node.coords, layer)
-                node.patch = NodePatch(node, [x, y], 0.3, 0.3)
+                node.patch = NodePatch(node, [x, y], 0.3, 0.3,
+                                       edgecolor='k', facecolor= 'w', linewidth= 2, zorder= 10)
                 h = self.ax.add_artist(node.patch)
                 h.set_picker(1.5)
 
-                for aff_node, weight in node.in_synapses.items():
-                    if np.sign(weight) < 0:
+                for synapse in node.in_synapses:
+                    if np.sign(synapse.weight) < 0:
                         color = [0, 0, 1]
                     else:
                         color = [1, 0, 0]
 
-                    node.in_lines[aff_node] = mpl.lines.Line2D([h.x, aff_node.patch.x], [h.y, aff_node.patch.y],
-                                         linewidth= abs(weight), color= color)
+                    synapse.line = EdgeLine(synapse, h.x, synapse.node.patch.x, h.y, synapse.node.patch.y,
+                                            linewidth= abs(synapse.weight), color= color, zorder= 1)
 
-                    self.ax.add_artist(node.in_lines[aff_node])
+                    self.ax.add_artist(synapse.line)
 
 
     def coords_to_pos(self, coords, layer):
@@ -220,16 +249,13 @@ def load_data(filename, target_length = None):
 
     return obs_mat
 
-
-#my_data = genfromtxt('iris_data.txt', delimiter=',')
 [X, targets] = load_data('iris_data.txt', target_length= 3)
 
 nn = NeuralNet([4, 5, 3])
 
 vis = Visualizer(nn)
 
-#for j in range(100):
-for pss in range(100):
+for pss in range(25):
     print(pss)
     for i, instance in enumerate(X):
         plt.draw()
