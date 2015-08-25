@@ -223,12 +223,6 @@ class NeuralNet(object):
 
         neuron.boundary= {'basis':basis, 'offset':offset}
 
-        #M = np.column_stack((np.eye(n - 1), np.array([0]*(n-1))))
-
-        #w1 = neuron.in_synapses[0].weight
-        ###ISSUE: The last (bias) element might need to be negative.
-        #W = [syn.weight/w1 for syn in neuron.in_synapses[1:]]
-        #neuron.boundary = np.row_stack((W, M))
 
 class Visualizer(object):
     def __init__(self, model):
@@ -239,6 +233,7 @@ class Visualizer(object):
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
+        self.X = None #Added in call to learn.
 
         depth = model.depth
         network_width = max([len(x) for x in model.layers])
@@ -252,7 +247,7 @@ class Visualizer(object):
                 node.art = NodeArt(node, [x, y],
                                        color='k', markerfacecolor= 'w', zorder= 10)
                 h = self.ax.add_artist(node.art)
-                h.set_picker(1.5)
+                h.set_picker(3.5)
 
                 for synapse in node.in_synapses:
                     if np.sign(synapse.weight) < 0:
@@ -283,8 +278,8 @@ class Visualizer(object):
             #self.data_ax.add_artist(node.boundary[name])
 
     def learn(self, X, targets, iterations, interval = 5):
-
-        self.draw_data(X, targets)
+        self.X = X
+        self.setup_data_plotting()
 
         ##Train
         for it in range(iterations):
@@ -299,28 +294,63 @@ class Visualizer(object):
                 time.sleep(0.1)
                 plt.draw()
 
-    def draw_data(self, X, targets):
-        D = X
-        if len(X[0,:]) > 2:
-            Z = np.random.rand(len(X[0,:]), 2)
+    def setup_data_plotting(self):
+        self.D = []
+
+        #Prepare Q
+        if len(self.X[0,:]) > 2:
+            Z = np.random.rand(len(self.X[0,:]), 2)
             Q, R = np.linalg.qr(Z)
-            D = np.dot(X, Q)
-
+            #D = np.dot(X, Q)
             self.Q = Q
+        else:
+            self.Q = np.eye(2)
 
-        color_dict = {}
+        #Prepare color dictionary
+        self.D = {}
+
+        for i, row in enumerate(self.X):
+            clss = np.where(targets[i] > 0)[0][0]
+            if clss not in self.D.keys():
+                self.D[clss] = {}
+                self.D[clss]['data'] = []
+
+            self.D[clss]['data'].append(row)
+
+
         for clss in range(len(targets[0])):
             ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
-            color_dict[clss] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+            self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+            self.D[clss]['data'] = np.array(self.D[clss]['data'])
 
-        for i, row in enumerate(D):
-            self.data_ax.scatter(row[0], row[1], color= color_dict[np.where(targets[i] > 0)[0][0]])
+        self.draw_data()
+
+
+    def draw_data(self):
+        self.data_ax.cla()
+
+        for d in self.D.values():
+            X_lo = np.dot(d['data'], self.Q)
+            self.data_ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
+
+    def random_proj(self):
+        if len(self.X[0,:]) > 2:
+            Z = np.random.rand(len(X[0,:]), 2)
+            Q, R = np.linalg.qr(Z)
+            #D = np.dot(X, Q)
+            self.Q = Q
+
+        self.draw_data()
 
     def draw_DB_points(self, node):
         M = np.dot(node.boundary['pts'].transpose(), self.Q)
 
         if hasattr(self, 'plane'):
-            self.plane.remove()
+            try:
+                self.plane.remove()
+            except ValueError:
+                pass
+
         self.plane = plt.scatter(M[:,0], M[:, 1], color = 'y')
 
     def compute_DB_points(self, node, with_offset= True):
@@ -357,6 +387,9 @@ class Visualizer(object):
         print(ev.artist)
         print("type:")
         print(type(ev.artist))
+
+        self.compute_DB_points(ev.artist.node)
+        self.draw_DB_points(ev.artist.node)
 
 
 def sigmoid(x):
@@ -426,9 +459,6 @@ vis.learn(X, targets, 100, 50)
 correct = 0
 for i, instance in enumerate(X):
     out = nn.feedforward(instance)
-    #out_int = [0]*len(targets[0])
-    #out_int[out.index(max(out))] = 1
-    #out_int = np.array(out_int)
     out_int = decide(out)
 
     if i == 60:
@@ -442,16 +472,12 @@ for i, instance in enumerate(X):
 
 print('accuracy: %s'%str(correct/len(X)))
 
-#vis.plot_DB(vis.model.layers[1][0], color= 'r')
-#vis.plot_DB(vis.model.layers[1][1], color= 'g')
-#vis.plot_DB(vis.model.layers[1][2], color= 'b')
+#for node in vis.model.layers[1]:
+    #if node.bias:
+        #continue
+    #vis.compute_DB_points(node)
 
-for node in vis.model.layers[1]:
-    if node.bias:
-        continue
-    vis.compute_DB_points(node)
-
-vis.draw_DB_points(vis.model.layers[1][0])
+#vis.draw_DB_points(vis.model.layers[1][0])
 
 halt = True
 
