@@ -148,7 +148,7 @@ class NeuralNet(object):
 
         return output
 
-    def backpropagate(self, target_vector):
+    def backpropagate(self, target_vector, show= False):
         if len(target_vector) != len(self.layers[-1]):
             raise ValueError("Mismatch in length of output layer and target vector.")
 
@@ -159,14 +159,8 @@ class NeuralNet(object):
 
             for synapse in neuron.in_synapses:
                 synapse.weight += neuron.rate * neuron.error * synapse.node.activation
-                try:
-                    synapse.line.set_linewidth(2*abs(synapse.weight))
-                    if synapse.weight < 0:
-                        synapse.line.set_color([0, 0, 1])
-                    else:
-                        synapse.line.set_color([1, 0, 0])
-                except AttributeError:
-                    pass
+                if show:
+                    self.update_weight_graphics(synapse)
 
         #Update weights for all hidden layers.
         reversed_layers = list(reversed(self.layers))
@@ -185,18 +179,23 @@ class NeuralNet(object):
                 #Update weights
                 for synapse in neuron.in_synapses:
                     synapse.weight += neuron.rate * neuron.error * synapse.node.activation
-                    try:
-                        synapse.line.set_linewidth(2*abs(synapse.weight))
-                        if synapse.weight < 0:
-                            synapse.line.set_color([0, 0, 1])
-                        else:
-                            synapse.line.set_color([1, 0, 0])
-                    except AttributeError:
-                        pass
+                    if show:
+                        self.update_weight_graphics(synapse)
+
+    def update_weight_graphics(self, synapse):
+        synapse.line.set_linewidth(1*abs(synapse.weight))
+        if synapse.weight < 0:
+            synapse.line.set_color([0, 0, 1])
+        else:
+            synapse.line.set_color([1, 0, 0])
+
 
 class Visualizer(object):
     def __init__(self, model):
-        self.fig, self.ax = plt.subplots(1,1)
+        self.fig, ax = plt.subplots(1,2)
+        self.ax = ax[0]
+        self.data_ax = ax[1]
+
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
@@ -227,6 +226,50 @@ class Visualizer(object):
                     self.ax.add_artist(synapse.line)
 
 
+    #def draw_boundaries(self, node, dim1, dim2, color= 'b', name= None):
+        #if node.bias:
+            #return
+
+        #xs = np.array(range(-10, 10))
+        #w1 = node.in_synapses[dim1].weight
+        #w2 = node.in_synapses[dim2].weight
+        #b = node.in_synapses[-1].weight
+
+        #ys = [-x*(w1/w2) - b/w1 for x in xs]
+        #try:
+            #node.boundary[name].set_data(xs, ys)
+        #except KeyError:
+            #node.boundary[name] = mpl.lines.Line2D(xs, ys, color=color)
+            #self.data_ax.add_artist(node.boundary[name])
+
+    def learn(self, X, targets, iterations, interval = 5):
+
+        self.draw_data(X, targets)
+
+        ##Train
+        for it in range(iterations):
+            shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
+
+            for i, instance in enumerate(shuff_X):
+                self.model.feedforward(instance)
+                self.model.backpropagate(shuff_tars[i], show= False)
+
+            if it % interval == 0:
+                self.model.backpropagate(shuff_tars[i], show= True)
+                time.sleep(0.1)
+                plt.draw()
+
+    def draw_data(self, X, targets):
+        X_2d = X[:,0:2]
+        for i, row in enumerate(X_2d):
+            if len(targets[i]) < 3:
+                color = np.concatenate((targets[i], [0]), 0)
+            else:
+                color = targets[i]
+
+            self.data_ax.scatter(row[0], row[1], color= color)
+
+
     def coords_to_pos(self, coords, layer):
         y = coords[0]
         x = coords[1] - (len(layer)-1)/2
@@ -242,7 +285,13 @@ class Visualizer(object):
 def sigmoid(x):
     return 1/(1 + math.e**(-x))
 
-def load_data(filename, target_length = None):
+def center(X):
+    for row in X:
+        row -= np.mean(X)
+
+    return X
+
+def load_data(filename, labeled = True):
     obs_mat = []
     labels = []
 
@@ -253,16 +302,16 @@ def load_data(filename, target_length = None):
             if list_line[0] == '':
                 continue
 
-            if target_length is not None:
+            if labeled:
                 labels.append(list_line[-1])
                 list_line = list_line[0:-1]
 
             row = [float(x) for x in list_line]
             obs_mat.append(row)
 
-    if target_length is not None:
+    if labeled:
         classes = set(labels)
-        class_codes = dict(zip(classes, np.eye(target_length).tolist()))
+        class_codes = dict(zip(classes, np.eye(len(classes)).tolist()))
 
         targets = []
         for label in labels:
@@ -274,18 +323,49 @@ def load_data(filename, target_length = None):
 
     return obs_mat
 
-[X, targets] = load_data('iris_data.txt', target_length= 3)
+def shuffle_in_unison_inplace(a, b):
+    assert len(a) == len(b)
+    p = np.random.permutation(len(a))
+    return a[p], b[p]
+
+[X, targets] = load_data('iris_data.txt', labeled= True)
 
 nn = NeuralNet([4, 5, 3], bias_on= True)
 
 vis = Visualizer(nn)
 
-for pss in range(5):
-    print(pss)
-    for i, instance in enumerate(X):
-        plt.draw()
-        time.sleep(0.1)
-        nn.feedforward(instance)
-        nn.backpropagate(targets[i])
+#X = np.array(X)[:, 2:4]
+X = np.array(X)
+X = center(X)
+
+##Train
+vis.learn(X, targets, 100)
+
+##Test
+correct = 0
+for i, instance in enumerate(X):
+    out = nn.feedforward(instance)
+    out_int = [0]*len(targets[0])
+    out_int[out.index(max(out))] = 1
+    out_int = np.array(out_int)
+
+    if i == 60:
+        halt = True
+
+    print("out_int: ", [int(x) for x in out_int])
+    print("target:: ", [int(x) for x in targets[i].tolist()])
+
+    if (out_int == targets[i]).all():
+        correct += 1
+
+print('accuracy: %s'%str(correct/len(X)))
 
 halt = True
+
+for x in np.arange(-2,7,0.1):
+    for y in np.arange(-2.5, 2, 0.1):
+        out = nn.feedforward([x, y])
+        out_int = [0, 0, 0]
+        out_int[out.index(max(out))] = 1
+
+        nn.vis.data_ax.scatter(x, y, color= out_int)
