@@ -66,6 +66,7 @@ class Neuron(Node):
         self.transfer = transfer_func
         self.bias = bias
 
+        #Will contain keys for basis of decision hyperplane, offset of plane, and points on the plane.
         self.boundary = None
 
         #Links to the artist created from this neuron.
@@ -148,6 +149,7 @@ class NeuralNet(object):
         for neuron in self.layers[-1]:
             output.append(neuron.activation)
 
+        output = np.array(output)
         return output
 
     def backpropagate(self, target_vector, show= False):
@@ -204,12 +206,29 @@ class NeuralNet(object):
             if not synapse.node.bias:
                 n += 1
 
-        M = np.column_stack((np.eye(n - 1), np.array([0]*(n-1))))
-
         w1 = neuron.in_synapses[0].weight
-        ##ISSUE: The last (bias) element might need to be negative.
-        W = [syn.weight/w1 for syn in neuron.in_synapses[1:]]
-        neuron.boundary = np.row_stack((W, M))
+        ###ISSUE: The last (bias) element might need to be negative.
+        #w = [syn.weight/w1 for syn in neuron.in_synapses[1:] if not neuron.bias]
+        w= []
+        for syn in neuron.in_synapses[1:]:
+            if syn.node.bias:
+                offset = np.zeros(n)
+                ###ISSUE: Should probably use logit(0.5), not 0.5
+                offset[0] = (0.5-syn.weight)/w1
+                continue
+            w.append(syn.weight/w1)
+
+        span = np.row_stack((w, np.eye(n - 1)))
+        basis, R = np.linalg.qr(span)
+
+        neuron.boundary= {'basis':basis, 'offset':offset}
+
+        #M = np.column_stack((np.eye(n - 1), np.array([0]*(n-1))))
+
+        #w1 = neuron.in_synapses[0].weight
+        ###ISSUE: The last (bias) element might need to be negative.
+        #W = [syn.weight/w1 for syn in neuron.in_synapses[1:]]
+        #neuron.boundary = np.row_stack((W, M))
 
 class Visualizer(object):
     def __init__(self, model):
@@ -294,9 +313,38 @@ class Visualizer(object):
             ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
             color_dict[clss] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
 
-
         for i, row in enumerate(D):
             self.data_ax.scatter(row[0], row[1], color= color_dict[np.where(targets[i] > 0)[0][0]])
+
+    def draw_DB_points(self, node):
+        M = np.dot(node.boundary['pts'].transpose(), self.Q)
+
+        if hasattr(self, 'plane'):
+            self.plane.remove()
+        self.plane = plt.scatter(M[:,0], M[:, 1], color = 'y')
+
+    def compute_DB_points(self, node, with_offset= True):
+        B = node.boundary['basis']
+
+        if with_offset:
+            offset = node.boundary['offset']
+        else:
+            offset = 0
+
+        for x in np.arange(-2, 2, 0.5):
+            for y in np.arange(-2, 2, 0.5):
+                for z in np.arange(-2, 2, 0.5):
+
+                    p = B[:, 0]*x + B[:, 1]*y + B[:, 2]*z + offset
+                    #np.dot(p.transpose(),vis.Q)
+
+                    try:
+                        pts = np.column_stack((pts,p))
+                    except NameError:
+                        pts = p
+
+        node.boundary['pts'] = pts
+
 
 
     def coords_to_pos(self, coords, layer):
@@ -352,6 +400,10 @@ def load_data(filename, labeled = True):
 
     return obs_mat
 
+def decide(vec):
+    out= (vec > 0.5).astype(int)
+    return out
+
 def shuffle_in_unison_inplace(a, b):
     assert len(a) == len(b)
     p = np.random.permutation(len(a))
@@ -368,15 +420,16 @@ X = np.array(X)
 X = center(X)
 
 ##Train
-vis.learn(X, targets, 100)
+vis.learn(X, targets, 100, 50)
 
 ##Test
 correct = 0
 for i, instance in enumerate(X):
     out = nn.feedforward(instance)
-    out_int = [0]*len(targets[0])
-    out_int[out.index(max(out))] = 1
-    out_int = np.array(out_int)
+    #out_int = [0]*len(targets[0])
+    #out_int[out.index(max(out))] = 1
+    #out_int = np.array(out_int)
+    out_int = decide(out)
 
     if i == 60:
         halt = True
@@ -389,12 +442,24 @@ for i, instance in enumerate(X):
 
 print('accuracy: %s'%str(correct/len(X)))
 
+#vis.plot_DB(vis.model.layers[1][0], color= 'r')
+#vis.plot_DB(vis.model.layers[1][1], color= 'g')
+#vis.plot_DB(vis.model.layers[1][2], color= 'b')
+
+for node in vis.model.layers[1]:
+    if node.bias:
+        continue
+    vis.compute_DB_points(node)
+
+vis.draw_DB_points(vis.model.layers[1][0])
+
 halt = True
 
-for x in np.arange(-2,7,0.1):
-    for y in np.arange(-2.5, 2, 0.1):
-        out = nn.feedforward([x, y])
-        out_int = [0, 0, 0]
-        out_int[out.index(max(out))] = 1
+#for x in np.arange(-2,7,0.1):
+    #for y in np.arange(-2.5, 2, 0.1):
+        #out = nn.feedforward([x, y])
+        ##out_int = [0, 0, 0]
+        ##out_int[out.index(max(out))] = 1
+        #out_int = decide(out)
 
-        nn.vis.data_ax.scatter(x, y, color= out_int)
+        #nn.vis.data_ax.scatter(x, y, color= out_int)
