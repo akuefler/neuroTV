@@ -66,6 +66,8 @@ class Neuron(Node):
         self.transfer = transfer_func
         self.bias = bias
 
+        self.boundary = None
+
         #Links to the artist created from this neuron.
         self.art = None
 
@@ -162,6 +164,9 @@ class NeuralNet(object):
                 if show:
                     self.update_weight_graphics(synapse)
 
+            if not neuron.bias:
+                self.update_DB_vecs(neuron)
+
         #Update weights for all hidden layers.
         reversed_layers = list(reversed(self.layers))
         for layer in reversed_layers[1:-1]:
@@ -182,6 +187,9 @@ class NeuralNet(object):
                     if show:
                         self.update_weight_graphics(synapse)
 
+                if not neuron.bias:
+                    self.update_DB_vecs(neuron)
+
     def update_weight_graphics(self, synapse):
         synapse.line.set_linewidth(1*abs(synapse.weight))
         if synapse.weight < 0:
@@ -189,6 +197,19 @@ class NeuralNet(object):
         else:
             synapse.line.set_color([1, 0, 0])
 
+    def update_DB_vecs(self, neuron):
+        assert not neuron.bias, ("Bias nodes do not have decision boundaries.")
+        n = 0
+        for synapse in neuron.in_synapses:
+            if not synapse.node.bias:
+                n += 1
+
+        M = np.column_stack((np.eye(n - 1), np.array([0]*(n-1))))
+
+        w1 = neuron.in_synapses[0].weight
+        ##ISSUE: The last (bias) element might need to be negative.
+        W = [syn.weight/w1 for syn in neuron.in_synapses[1:]]
+        neuron.boundary = np.row_stack((W, M))
 
 class Visualizer(object):
     def __init__(self, model):
@@ -260,14 +281,22 @@ class Visualizer(object):
                 plt.draw()
 
     def draw_data(self, X, targets):
-        X_2d = X[:,0:2]
-        for i, row in enumerate(X_2d):
-            if len(targets[i]) < 3:
-                color = np.concatenate((targets[i], [0]), 0)
-            else:
-                color = targets[i]
+        D = X
+        if len(X[0,:]) > 2:
+            Z = np.random.rand(len(X[0,:]), 2)
+            Q, R = np.linalg.qr(Z)
+            D = np.dot(X, Q)
 
-            self.data_ax.scatter(row[0], row[1], color= color)
+            self.Q = Q
+
+        color_dict = {}
+        for clss in range(len(targets[0])):
+            ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
+            color_dict[clss] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+
+
+        for i, row in enumerate(D):
+            self.data_ax.scatter(row[0], row[1], color= color_dict[np.where(targets[i] > 0)[0][0]])
 
 
     def coords_to_pos(self, coords, layer):
