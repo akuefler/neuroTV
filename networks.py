@@ -269,22 +269,6 @@ class Visualizer(object):
         self.widgets['rand'].on_clicked(self.random_proj)
 
 
-    #def draw_boundaries(self, node, dim1, dim2, color= 'b', name= None):
-        #if node.bias:
-            #return
-
-        #xs = np.array(range(-10, 10))
-        #w1 = node.in_synapses[dim1].weight
-        #w2 = node.in_synapses[dim2].weight
-        #b = node.in_synapses[-1].weight
-
-        #ys = [-x*(w1/w2) - b/w1 for x in xs]
-        #try:
-            #node.boundary[name].set_data(xs, ys)
-        #except KeyError:
-            #node.boundary[name] = mpl.lines.Line2D(xs, ys, color=color)
-            #self.data_ax.add_artist(node.boundary[name])
-
     def learn(self, X, targets, iterations, interval = 5):
         self.X = X
         self.setup_data_plotting()
@@ -345,6 +329,7 @@ class Visualizer(object):
             self.draw_DB_points(self.selected_node.node)
 
     def random_proj(self, ev):
+        ##ISSUE: Should have some way to view projection onto the standard basis vectors.
         if len(self.X[0,:]) > 2:
             Z = np.random.rand(len(X[0,:]), 2)
             Q, R = np.linalg.qr(Z)
@@ -362,7 +347,9 @@ class Visualizer(object):
             except ValueError:
                 pass
 
-        self.plane = self.data_ax.scatter(M[:,0], M[:, 1], color = 'y')
+        #self.plane = self.data_ax.scatter(M[:,0], M[:, 1], color = 'y')
+        self.plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'y', marker= '.', linestyle= '.')
+        self.data_ax.add_artist(self.plane)
 
     def compute_DB_points(self, node, with_offset= True):
         B = node.boundary['basis']
@@ -389,25 +376,6 @@ class Visualizer(object):
             O = np.zeros(np.shape(pts))
 
         node.boundary['pts'] = pts + O
-
-        #for c in range(len(B[0])):
-            #for scal in np.arange(-2, 2, 0.5)
-
-        ###This looks like the volume of a cube.
-        #for x in np.arange(-2, 2, 0.5):
-            #for y in np.arange(-2, 2, 0.5):
-                #for z in np.arange(-2, 2, 0.5):
-
-                    #p = B[:, 0]*x + B[:, 1]*y + B[:, 2]*z #+ offset
-                    ##np.dot(p.transpose(),vis.Q)
-
-                    #try:
-                        #pts = np.column_stack((pts,p))
-                    #except NameError:
-                        #pts = p
-
-        #node.boundary['pts'] = pts
-
 
 
     def coords_to_pos(self, coords, layer):
