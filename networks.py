@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.matlib as ml
 import math
 
 import matplotlib as mpl
@@ -207,21 +208,19 @@ class NeuralNet(object):
                 n += 1
 
         w1 = neuron.in_synapses[0].weight
-        ###ISSUE: The last (bias) element might need to be negative.
-        #w = [syn.weight/w1 for syn in neuron.in_synapses[1:] if not neuron.bias]
         w= []
         for syn in neuron.in_synapses[1:]:
             if syn.node.bias:
                 offset = np.zeros(n)
-                ###ISSUE: Should probably use logit(0.5), not 0.5
-                offset[0] = (0.5-syn.weight)/w1
+                ###ISSUE: Might try ADDING syn.weight (bias) as well.
+                offset[0] = (logit(0.5)-syn.weight)/w1
                 continue
             w.append(syn.weight/w1)
 
         span = np.row_stack((w, np.eye(n - 1)))
         basis, R = np.linalg.qr(span)
 
-        neuron.boundary= {'basis':basis, 'offset':offset}
+        neuron.boundary= {'basis':basis, 'span': span, 'offset':offset}
 
 
 class Visualizer(object):
@@ -234,6 +233,8 @@ class Visualizer(object):
 
         self.model = model
         self.X = None #Added in call to learn.
+
+        self.selected_node = None
 
         depth = model.depth
         network_width = max([len(x) for x in model.layers])
@@ -259,6 +260,13 @@ class Visualizer(object):
                                             linewidth= abs(synapse.weight), color= color, zorder= 1)
 
                     self.ax.add_artist(synapse.line)
+
+        # Display graphics objects hierarchy
+        self.widgets= {}
+
+        rand_button = mpl.widgets.Button(plt.axes([0.86, 0.02, 0.12, 0.03]), 'Randomize')
+        self.widgets['rand'] = rand_button
+        self.widgets['rand'].on_clicked(self.random_proj)
 
 
     #def draw_boundaries(self, node, dim1, dim2, color= 'b', name= None):
@@ -333,7 +341,10 @@ class Visualizer(object):
             X_lo = np.dot(d['data'], self.Q)
             self.data_ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
-    def random_proj(self):
+        if self.selected_node is not None:
+            self.draw_DB_points(self.selected_node.node)
+
+    def random_proj(self, ev):
         if len(self.X[0,:]) > 2:
             Z = np.random.rand(len(X[0,:]), 2)
             Q, R = np.linalg.qr(Z)
@@ -351,29 +362,51 @@ class Visualizer(object):
             except ValueError:
                 pass
 
-        self.plane = plt.scatter(M[:,0], M[:, 1], color = 'y')
+        self.plane = self.data_ax.scatter(M[:,0], M[:, 1], color = 'y')
 
     def compute_DB_points(self, node, with_offset= True):
         B = node.boundary['basis']
 
+        n = np.shape(B)[1]
+        m = 5
+        #m = 100 #Number of points to be drawn
+
+        M = []
+
+        #Generates permutation matrix whose elements are scaling constants for the basis vectors.
+        C = np.indices((m,) * n).reshape(n, -1).T - np.ceil(m/2)
+        C = np.array(C)
+
+        M = np.array(M)
+        #pts = np.dot(B, M)
+
+        #pts = np.dot(M, B.transpose())
+        pts = np.dot(C, B.transpose()).transpose()
+
         if with_offset:
-            offset = node.boundary['offset']
+            O = ml.repmat(node.boundary['offset'], np.shape(pts)[1], 1).transpose()
         else:
-            offset = 0
+            O = np.zeros(np.shape(pts))
 
-        for x in np.arange(-2, 2, 0.5):
-            for y in np.arange(-2, 2, 0.5):
-                for z in np.arange(-2, 2, 0.5):
+        node.boundary['pts'] = pts + O
 
-                    p = B[:, 0]*x + B[:, 1]*y + B[:, 2]*z + offset
-                    #np.dot(p.transpose(),vis.Q)
+        #for c in range(len(B[0])):
+            #for scal in np.arange(-2, 2, 0.5)
 
-                    try:
-                        pts = np.column_stack((pts,p))
-                    except NameError:
-                        pts = p
+        ###This looks like the volume of a cube.
+        #for x in np.arange(-2, 2, 0.5):
+            #for y in np.arange(-2, 2, 0.5):
+                #for z in np.arange(-2, 2, 0.5):
 
-        node.boundary['pts'] = pts
+                    #p = B[:, 0]*x + B[:, 1]*y + B[:, 2]*z #+ offset
+                    ##np.dot(p.transpose(),vis.Q)
+
+                    #try:
+                        #pts = np.column_stack((pts,p))
+                    #except NameError:
+                        #pts = p
+
+        #node.boundary['pts'] = pts
 
 
 
@@ -383,17 +416,24 @@ class Visualizer(object):
         return [x, y]
 
     def pick_handler(self, ev):
-        print("artist:")
-        print(ev.artist)
-        print("type:")
-        print(type(ev.artist))
+        self.selected_node = ev.artist
+        self.selected_node.set_markerfacecolor('y')
 
-        self.compute_DB_points(ev.artist.node)
-        self.draw_DB_points(ev.artist.node)
+        if self.selected_node.node.boundary is not None:
+            self.compute_DB_points(self.selected_node.node)
+            self.draw_DB_points(self.selected_node.node)
+
+        if hasattr(self, 'last_selected_node'):
+            self.last_selected_node.set_markerfacecolor('w')
+
+        self.last_selected_node = self.selected_node
 
 
 def sigmoid(x):
     return 1/(1 + math.e**(-x))
+
+def logit(x):
+    return np.log(x/(1 - x))
 
 def center(X):
     for row in X:
