@@ -222,17 +222,95 @@ class NeuralNet(object):
 
         neuron.boundary= {'basis':basis, 'span': span, 'offset':offset}
 
+class DataDisplay(object):
+    def __init__(self, visualizer, X= None):
+        self.fig, ax = plt.subplots(1, 1)
+        self.ax = ax
+
+        self.X = X
+
+        self.vis = visualizer
+
+        self.widgets= {}
+
+        rand_button = mpl.widgets.Button(plt.axes([0.86, 0.02, 0.12, 0.03]), 'Randomize')
+        self.widgets['rand'] = rand_button
+        self.widgets['rand'].on_clicked(self.random_proj)
+
+        if self.X is not None:
+            self.setup_DataDisplay()
+            self.draw_data()
+
+    def random_proj(self, ev):
+        ##ISSUE: Should have some way to view projection onto the standard basis vectors.
+        if len(self.X[0,:]) > 2:
+            Z = np.random.rand(len(X[0,:]), 2)
+            Q, R = np.linalg.qr(Z)
+            #D = np.dot(X, Q)
+            self.Q = Q
+
+        self.draw_data()
+
+    def add_data(self, X= None, targets= None):
+        self.X = X
+        self.targets = targets
+
+    def draw_data(self):
+        self.ax.cla()
+
+        for d in self.D.values():
+            X_lo = np.dot(d['data'], self.Q)
+            self.ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
+
+        if self.vis.selected_node is not None:
+            self.vis.draw_DB_points(self.vis.selected_node.node)
+
+        self.fig.draw()
+
+    def setup_DataDisplay(self):
+        self.D = []
+
+        #Prepare Q
+        if len(self.X[0,:]) > 2:
+            Z = np.random.rand(len(self.X[0,:]), 2)
+            Q, R = np.linalg.qr(Z)
+            #D = np.dot(X, Q)
+            self.Q = Q
+        else:
+            self.Q = np.eye(2)
+
+        #Prepare color dictionary
+        self.D = {}
+
+        for i, row in enumerate(self.X):
+            clss = np.where(self.targets[i] > 0)[0][0]
+            if clss not in self.D.keys():
+                self.D[clss] = {}
+                self.D[clss]['data'] = []
+
+            self.D[clss]['data'].append(row)
+
+
+        for clss in range(len(self.targets[0])):
+            ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
+            self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+            self.D[clss]['data'] = np.array(self.D[clss]['data'])
+
+        self.draw_data()
+
 
 class Visualizer(object):
     def __init__(self, model):
-        self.fig, ax = plt.subplots(1,2)
-        self.ax = ax[0]
-        self.data_ax = ax[1]
+        self.fig, ax = plt.subplots(1, 1)
+        self.ax = ax
+
+        #Initialize display modules
+        self.dDisplay = DataDisplay(self)
+        ##self.nDisplay = NetworkDisplay(self) #Not yet implemented.
 
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
-        self.X = None #Added in call to learn.
 
         self.selected_node = None
 
@@ -261,20 +339,13 @@ class Visualizer(object):
 
                     self.ax.add_artist(synapse.line)
 
-        # Display graphics objects hierarchy
-        self.widgets= {}
-
-        rand_button = mpl.widgets.Button(plt.axes([0.86, 0.02, 0.12, 0.03]), 'Randomize')
-        self.widgets['rand'] = rand_button
-        self.widgets['rand'].on_clicked(self.random_proj)
-
 
     def learn(self, X, targets, iterations, interval = 5):
-        self.X = X
-        self.setup_data_plotting()
+        self.dDisplay.add_data(X, targets)
+        self.dDisplay.setup_DataDisplay()
 
         ##Train
-        for it in range(iterations):
+        for it in range(1, iterations+1):
             shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
 
             for i, instance in enumerate(shuff_X):
@@ -284,62 +355,62 @@ class Visualizer(object):
             if it % interval == 0:
                 self.model.backpropagate(shuff_tars[i], show= True)
                 time.sleep(0.1)
-                plt.draw()
+                self.fig.canvas.draw()
 
-    def setup_data_plotting(self):
-        self.D = []
+    #def setup_data_plotting(self):
+        #self.D = []
 
-        #Prepare Q
-        if len(self.X[0,:]) > 2:
-            Z = np.random.rand(len(self.X[0,:]), 2)
-            Q, R = np.linalg.qr(Z)
-            #D = np.dot(X, Q)
-            self.Q = Q
-        else:
-            self.Q = np.eye(2)
+        ##Prepare Q
+        #if len(self.X[0,:]) > 2:
+            #Z = np.random.rand(len(self.X[0,:]), 2)
+            #Q, R = np.linalg.qr(Z)
+            ##D = np.dot(X, Q)
+            #self.Q = Q
+        #else:
+            #self.Q = np.eye(2)
 
-        #Prepare color dictionary
-        self.D = {}
+        ##Prepare color dictionary
+        #self.D = {}
 
-        for i, row in enumerate(self.X):
-            clss = np.where(targets[i] > 0)[0][0]
-            if clss not in self.D.keys():
-                self.D[clss] = {}
-                self.D[clss]['data'] = []
+        #for i, row in enumerate(self.X):
+            #clss = np.where(targets[i] > 0)[0][0]
+            #if clss not in self.D.keys():
+                #self.D[clss] = {}
+                #self.D[clss]['data'] = []
 
-            self.D[clss]['data'].append(row)
-
-
-        for clss in range(len(targets[0])):
-            ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
-            self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
-            self.D[clss]['data'] = np.array(self.D[clss]['data'])
-
-        self.draw_data()
+            #self.D[clss]['data'].append(row)
 
 
-    def draw_data(self):
-        self.data_ax.cla()
+        #for clss in range(len(targets[0])):
+            ###ISSUE: Will only work if target vectors have only one 1 and rest 0s.
+            #self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+            #self.D[clss]['data'] = np.array(self.D[clss]['data'])
 
-        for d in self.D.values():
-            X_lo = np.dot(d['data'], self.Q)
-            self.data_ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
+        #self.draw_data()
 
-        if self.selected_node is not None:
-            self.draw_DB_points(self.selected_node.node)
 
-    def random_proj(self, ev):
-        ##ISSUE: Should have some way to view projection onto the standard basis vectors.
-        if len(self.X[0,:]) > 2:
-            Z = np.random.rand(len(X[0,:]), 2)
-            Q, R = np.linalg.qr(Z)
-            #D = np.dot(X, Q)
-            self.Q = Q
+    #def draw_data(self):
+        #self.data_ax.cla()
 
-        self.draw_data()
+        #for d in self.D.values():
+            #X_lo = np.dot(d['data'], self.Q)
+            #self.data_ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
+
+        #if self.selected_node is not None:
+            #self.draw_DB_points(self.selected_node.node)
+
+    #def random_proj(self, ev):
+        ###ISSUE: Should have some way to view projection onto the standard basis vectors.
+        #if len(self.X[0,:]) > 2:
+            #Z = np.random.rand(len(X[0,:]), 2)
+            #Q, R = np.linalg.qr(Z)
+            ##D = np.dot(X, Q)
+            #self.Q = Q
+
+        #self.draw_data()
 
     def draw_DB_points(self, node):
-        M = np.dot(node.boundary['pts'].transpose(), self.Q)
+        M = np.dot(node.boundary['pts'].transpose(), self.dDisplay.Q)
 
         if hasattr(self, 'plane'):
             try:
@@ -349,7 +420,7 @@ class Visualizer(object):
 
         #self.plane = self.data_ax.scatter(M[:,0], M[:, 1], color = 'y')
         self.plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'y', marker= '.', linestyle= '.')
-        self.data_ax.add_artist(self.plane)
+        self.dDisplay.ax.add_artist(self.plane)
 
     def compute_DB_points(self, node, with_offset= True):
         B = node.boundary['basis']
@@ -461,7 +532,7 @@ X = np.array(X)
 X = center(X)
 
 ##Train
-vis.learn(X, targets, 100, 50)
+vis.learn(X, targets, 100, 5)
 
 ##Test
 correct = 0
