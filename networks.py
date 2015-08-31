@@ -202,6 +202,8 @@ class NeuralNet(object):
 
     def update_DB_vecs(self, neuron):
         assert not neuron.bias, ("Bias nodes do not have decision boundaries.")
+        neuron.boundary = {}
+
         n = 0
         for synapse in neuron.in_synapses:
             if not synapse.node.bias:
@@ -214,12 +216,15 @@ class NeuralNet(object):
                 offset = np.zeros(n)
                 ###ISSUE: Might try ADDING syn.weight (bias) as well.
                 offset[0] = (logit(0.5)-syn.weight)/w1
+
+                #neuron.boundary['offset'] = offset
                 continue
             w.append(syn.weight/w1)
 
         span = np.row_stack((w, np.eye(n - 1)))
         basis, R = np.linalg.qr(span)
 
+        #neuron.boundary= {'basis':basis, 'span': span}
         neuron.boundary= {'basis':basis, 'span': span, 'offset':offset}
 
 class DataDisplay(object):
@@ -243,11 +248,13 @@ class DataDisplay(object):
 
     def random_proj(self, ev):
         ##ISSUE: Should have some way to view projection onto the standard basis vectors.
-        if len(self.X[0,:]) > 2:
-            Z = np.random.rand(len(X[0,:]), 2)
+        #if len(self.X[0,:]) > 2:
+        if len(self.D[0]['data'][0]) > 2:
+            #Z = np.random.rand(len(X[0,:]), 2)
+            Z = np.random.rand(len(self.D[0]['data'][0]), 2)
             Q, R = np.linalg.qr(Z)
             #D = np.dot(X, Q)
-            self.Q = Q
+            self.P = Q
 
         self.draw_data()
 
@@ -259,13 +266,13 @@ class DataDisplay(object):
         self.ax.cla()
 
         for d in self.D.values():
-            X_lo = np.dot(d['data'], self.Q)
+            X_lo = np.dot(d['data'], self.P)
             self.ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
-        if self.vis.selected_node is not None:
-            self.vis.draw_DB_points(self.vis.selected_node.node)
+        #if self.vis.selected_node is not None:
+            #self.vis.draw_DB_points(self.vis.selected_node.node)
 
-        self.fig.draw()
+        self.fig.canvas.draw()
 
     def setup_DataDisplay(self):
         self.D = []
@@ -275,9 +282,9 @@ class DataDisplay(object):
             Z = np.random.rand(len(self.X[0,:]), 2)
             Q, R = np.linalg.qr(Z)
             #D = np.dot(X, Q)
-            self.Q = Q
+            self.P = Q
         else:
-            self.Q = np.eye(2)
+            self.P = np.eye(2)
 
         #Prepare color dictionary
         self.D = {}
@@ -357,60 +364,39 @@ class Visualizer(object):
                 time.sleep(0.1)
                 self.fig.canvas.draw()
 
-    #def setup_data_plotting(self):
-        #self.D = []
+    def change_space(self, layer):
+        ##ISSUE: Because this appends a 1 vector each time, only goes up in dimensionality. Never down.
+        for key, d in self.dDisplay.D.items():
+            self.dDisplay.D[key]['data'] = np.column_stack((d['data'], np.ones((len(d['data']), 1))))
 
-        ##Prepare Q
-        #if len(self.X[0,:]) > 2:
-            #Z = np.random.rand(len(self.X[0,:]), 2)
-            #Q, R = np.linalg.qr(Z)
-            ##D = np.dot(X, Q)
-            #self.Q = Q
-        #else:
-            #self.Q = np.eye(2)
+        self.dDisplay.P = []
+        W = []
 
-        ##Prepare color dictionary
-        #self.D = {}
+        for node in layer:
+            row = []
+            if node.bias:
+                continue
 
-        #for i, row in enumerate(self.X):
-            #clss = np.where(targets[i] > 0)[0][0]
-            #if clss not in self.D.keys():
-                #self.D[clss] = {}
-                #self.D[clss]['data'] = []
+            for syn in node.in_synapses:
+                row.append(syn.weight)
 
-            #self.D[clss]['data'].append(row)
+            W.append(row)
 
+        W = np.array(W)
 
-        #for clss in range(len(targets[0])):
-            ###ISSUE: Will only work if target vectors have only one 1 and rest 0s.
-            #self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
-            #self.D[clss]['data'] = np.array(self.D[clss]['data'])
+        #ISSUE: Should I project onto W, or an orthonormalized W?
+        self.dDisplay.P = W.transpose()
 
-        #self.draw_data()
+        self.dDisplay.draw_data()
 
 
-    #def draw_data(self):
-        #self.data_ax.cla()
 
-        #for d in self.D.values():
-            #X_lo = np.dot(d['data'], self.Q)
-            #self.data_ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
-        #if self.selected_node is not None:
-            #self.draw_DB_points(self.selected_node.node)
 
-    #def random_proj(self, ev):
-        ###ISSUE: Should have some way to view projection onto the standard basis vectors.
-        #if len(self.X[0,:]) > 2:
-            #Z = np.random.rand(len(X[0,:]), 2)
-            #Q, R = np.linalg.qr(Z)
-            ##D = np.dot(X, Q)
-            #self.Q = Q
 
-        #self.draw_data()
 
     def draw_DB_points(self, node):
-        M = np.dot(node.boundary['pts'].transpose(), self.dDisplay.Q)
+        M = np.dot(node.boundary['pts'].transpose(), self.dDisplay.P)
 
         if hasattr(self, 'plane'):
             try:
@@ -426,7 +412,7 @@ class Visualizer(object):
         B = node.boundary['basis']
 
         n = np.shape(B)[1]
-        m = 5
+        m = 15
         #m = 100 #Number of points to be drawn
 
         M = []
@@ -459,8 +445,10 @@ class Visualizer(object):
         self.selected_node.set_markerfacecolor('y')
 
         if self.selected_node.node.boundary is not None:
-            self.compute_DB_points(self.selected_node.node)
-            self.draw_DB_points(self.selected_node.node)
+            #self.compute_DB_points(self.selected_node.node)
+            #self.draw_DB_points(self.selected_node.node)
+            layer = self.model.layers[self.selected_node.node.coords[0]]
+            self.change_space(layer)
 
         if hasattr(self, 'last_selected_node'):
             self.last_selected_node.set_markerfacecolor('w')
@@ -521,9 +509,9 @@ def shuffle_in_unison_inplace(a, b):
     p = np.random.permutation(len(a))
     return a[p], b[p]
 
-[X, targets] = load_data('iris_data.txt', labeled= True)
+[X, targets] = load_data('two_class_2D.txt', labeled= True)
 
-nn = NeuralNet([4, 5, 3], bias_on= True)
+nn = NeuralNet([2, 3, 2], bias_on= True)
 
 vis = Visualizer(nn)
 
@@ -532,7 +520,7 @@ X = np.array(X)
 X = center(X)
 
 ##Train
-vis.learn(X, targets, 100, 5)
+vis.learn(X, targets, 15, 5)
 
 ##Test
 correct = 0
