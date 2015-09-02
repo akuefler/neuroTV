@@ -236,37 +236,111 @@ class DataDisplay(object):
 
         self.vis = visualizer
 
-        self.widgets= {}
-
-        rand_button = mpl.widgets.Button(plt.axes([0.86, 0.02, 0.12, 0.03]), 'Randomize')
-        self.widgets['rand'] = rand_button
-        self.widgets['rand'].on_clicked(self.random_proj)
+        rand_button = mpl.widgets.Button(plt.axes([0.5, 0.02, 0.12, 0.03]), 'Randomize')
+        rand_button.on_clicked(self.random_proj)
 
         if self.X is not None:
+            self.currDim = self.X.shape[1]
             self.setup_DataDisplay()
             self.draw_data()
 
     def random_proj(self, ev):
         ##ISSUE: Should have some way to view projection onto the standard basis vectors.
-        #if len(self.X[0,:]) > 2:
-        if len(self.D[0]['data'][0]) > 2:
+        if self.currDim > 2:
             #Z = np.random.rand(len(X[0,:]), 2)
-            Z = np.random.rand(len(self.D[0]['data'][0]), 2)
+            Z = np.random.rand(self.currDim, 2)
             Q, R = np.linalg.qr(Z)
             #D = np.dot(X, Q)
             self.P = Q
 
         self.draw_data()
 
+    def rotate_proj(self, ev):
+        x_axes = [button.ax for button in self.rot_buttons['x']]
+        y_axes = [button.ax for button in self.rot_buttons['y']]
+
+        self.ax.set_autoscale_on(False)
+
+        if ev.inaxes in x_axes:
+            x_or_y = 0
+            ang_num = x_axes.index(ev.inaxes)
+
+        if ev.inaxes in y_axes:
+            x_or_y = 1
+            ang_num = y_axes.index(ev.inaxes)
+
+        theta = 0.2
+
+        R = np.eye(self.currDim - 1, self.currDim - 1)
+
+        R[ang_num, ang_num] = np.cos(theta)
+        R[ang_num, ang_num + 1] = -np.sin(theta)
+        R[ang_num+1, ang_num] = np.sin(theta)
+        R[ang_num+1, ang_num+1] = np.cos(theta)
+
+        self.P[:, x_or_y] = np.dot(np.dot(np.dot(self.Q[x_or_y], R), self.Q[x_or_y].T), self.P[:, x_or_y].T).T
+
+        self.draw_data()
+
+
     def add_data(self, X= None, targets= None):
         self.X = X
         self.targets = targets
+        self.currDim = X.shape[1]
+
+        self.setup_DataDisplay()
+        self.update_dimension(self.currDim)
+
+        #string = ("Current Dimensionality: %s" %self.currDim)
+        #self.ax.set_title(string)
+
+    def update_dimension(self, newDim):
+        self.currDim = newDim
+
+        self.create_P()
+
+        #Prepare Qs
+        self.Q = [[], []]
+
+        Q = np.random.randn(self.currDim, self.currDim - 2) #ISSUE -1 or -2?
+        Q1, r = np.linalg.qr(np.column_stack((self.P[:,0], Q)))
+        self.Q[0] = Q1
+
+        Q = np.random.randn(self.currDim, self.currDim - 2) #ISSUE -1 or -2?
+        Q2, r = np.linalg.qr(np.column_stack((self.P[:,1], Q)))
+        self.Q[1] = Q2
+
+        if hasattr(self, 'rot_buttons'):
+            [self.fig.delaxes(button.ax) for button in self.rot_buttons['x']]
+            [self.fig.delaxes(button.ax) for button in self.rot_buttons['y']]
+
+        self.rot_buttons = {'x':[], 'y':[]}
+        plt.figure(self.fig.number) #Set current figure.
+        for i in range(self.currDim - 2):
+            rotx_axes = plt.axes([0.01, 0.02 + 0.1*i, 0.05, 0.05])
+            roty_axes = plt.axes([0.95, 0.02 + 0.1*i, 0.05, 0.05])
+
+            rotx_button = mpl.widgets.Button(rotx_axes, 'R')
+            roty_button = mpl.widgets.Button(roty_axes, 'R')
+
+            rotx_button.on_clicked(self.rotate_proj)
+            roty_button.on_clicked(self.rotate_proj)
+
+            self.rot_buttons['x'].append(rotx_button)
+            self.rot_buttons['y'].append(roty_button)
+
+        self.draw_data()
+        self.ax.autoscale()
+
 
     def draw_data(self):
         self.ax.cla()
+        string = ("Current Dimensionality: %s" % self.currDim)
+        self.ax.set_title(string)
 
         for d in self.D.values():
             X_lo = np.dot(d['data'], self.P)
+            self.ax.set_autoscale_on(False)
             self.ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
         #if self.vis.selected_node is not None:
@@ -274,21 +348,22 @@ class DataDisplay(object):
 
         self.fig.canvas.draw()
 
-    def setup_DataDisplay(self):
-        self.D = []
-
-        #Prepare Q
-        if len(self.X[0,:]) > 2:
-            Z = np.random.rand(len(self.X[0,:]), 2)
-            Q, R = np.linalg.qr(Z)
-            #D = np.dot(X, Q)
-            self.P = Q
+    def create_P(self):
+        ##Prepare P
+        if self.currDim > 2:
+            self.P = np.eye(self.currDim)
         else:
             self.P = np.eye(2)
 
+    def setup_DataDisplay(self):
+        """
+        Creates a dictionary D that partitions the raw data X into separate sections based on their class labels,
+        and assigns labels to those classes. Also creates orthonormal projection matrix P if data are hi-Dimensional.
+        """
+        self.create_P()
+
         #Prepare color dictionary
         self.D = {}
-
         for i, row in enumerate(self.X):
             clss = np.where(self.targets[i] > 0)[0][0]
             if clss not in self.D.keys():
@@ -297,13 +372,13 @@ class DataDisplay(object):
 
             self.D[clss]['data'].append(row)
 
-
         for clss in range(len(self.targets[0])):
             ##ISSUE: Will only work if target vectors have only one 1 and rest 0s.
             self.D[clss]['color'] = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
             self.D[clss]['data'] = np.array(self.D[clss]['data'])
 
         self.draw_data()
+        self.ax.autoscale()
 
 
 class Visualizer(object):
@@ -349,7 +424,7 @@ class Visualizer(object):
 
     def learn(self, X, targets, iterations, interval = 5):
         self.dDisplay.add_data(X, targets)
-        self.dDisplay.setup_DataDisplay()
+        #self.dDisplay.setup_DataDisplay()
 
         ##Train
         for it in range(1, iterations+1):
@@ -366,8 +441,9 @@ class Visualizer(object):
 
     def change_space(self, layer):
         ##ISSUE: Because this appends a 1 vector each time, only goes up in dimensionality. Never down.
-        for key, d in self.dDisplay.D.items():
-            self.dDisplay.D[key]['data'] = np.column_stack((d['data'], np.ones((len(d['data']), 1))))
+        #for key, d in self.dDisplay.D.items():
+            #data = np.column_stack((d['data'], np.ones((len(d['data']), 1))))
+            #self.dDisplay.D[key]['data'] = np.dot(data, W)
 
         self.dDisplay.P = []
         W = []
@@ -382,14 +458,19 @@ class Visualizer(object):
 
             W.append(row)
 
-        W = np.array(W)
+        W = np.array(W).T
 
         #ISSUE: Should I project onto W, or an orthonormalized W?
-        self.dDisplay.P = W.transpose()
+        #Q, R = np.linalg.qr(W.transpose())
 
-        self.dDisplay.draw_data()
+        #ISSUE: Do I really want to use the weight matrix as the projection matrix? Or do I multiply, then show?
+        #self.dDisplay.P = Q
 
+        for key, d in self.dDisplay.D.items():
+            data = np.column_stack((d['data'], np.ones((len(d['data']), 1))))
+            self.dDisplay.D[key]['data'] = np.dot(data, W)
 
+        self.dDisplay.update_dimension(W.shape[1])
 
 
 
@@ -511,7 +592,7 @@ def shuffle_in_unison_inplace(a, b):
 
 [X, targets] = load_data('two_class_2D.txt', labeled= True)
 
-nn = NeuralNet([2, 3, 2], bias_on= True)
+nn = NeuralNet([2, 3, 4, 2], bias_on= True)
 
 vis = Visualizer(nn)
 
@@ -539,20 +620,4 @@ for i, instance in enumerate(X):
 
 print('accuracy: %s'%str(correct/len(X)))
 
-#for node in vis.model.layers[1]:
-    #if node.bias:
-        #continue
-    #vis.compute_DB_points(node)
-
-#vis.draw_DB_points(vis.model.layers[1][0])
-
 halt = True
-
-#for x in np.arange(-2,7,0.1):
-    #for y in np.arange(-2.5, 2, 0.1):
-        #out = nn.feedforward([x, y])
-        ##out_int = [0, 0, 0]
-        ##out_int[out.index(max(out))] = 1
-        #out_int = decide(out)
-
-        #nn.vis.data_ax.scatter(x, y, color= out_int)
