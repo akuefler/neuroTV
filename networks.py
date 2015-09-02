@@ -97,18 +97,19 @@ class Neuron(Node):
 
 
 class NeuralMat(object):
-    def __init__(self, layer_specs, bias_on= False):
+    def __init__(self, layer_specs, X, bias_on= False):
         self.Ws = [] #All weight matrices
         self.layer_specs = layer_specs
         self.bias_on = bias_on
+        self.X = X
 
         for ix, layer in enumerate(layer_specs[0:-1]):
             self.Ws.append(np.random.randn(layer + bias_on, layer_specs[ix + 1]))
 
-    def feedforward(self, X):
-        assert X.shape[1] == self.layer_specs[0], ("Mismatch in dimensionality of data and input layer.")
-        self.X = X
-        A = X
+    def feedforward(self, x):
+        #assert X.shape[1] == self.layer_specs[0], ("Mismatch in dimensionality of data and input layer.")
+        #self.X = X
+        A = x
         As = [A]
 
         for W in self.Ws:
@@ -122,7 +123,45 @@ class NeuralMat(object):
         Y = As[-1]
         return Y
 
-    #def backpropagate(self)
+    def backpropagate(self, T):
+        DELTAs = []
+        learning_rate = 1
+
+        for W in self.Ws:
+            DELTAs.append(np.zeros(W.shape))
+
+        training_set = self.X ##ISSUE
+
+        deltas = [[] for i in range(len(self.layer_specs))]
+        for i in range(len(training_set)):
+            y = self.feedforward(training_set[i])
+            deltas[len(self.layer_specs)] = y - T[i]
+            #Compute error vectors for each hidden layer:
+            for j in range(len(self.Ws)-1, -1, -1):
+                deltas[j] = np.dot(self.W[j], delta[j + 1]) * As[j][i,:] * (np.ones(As[j][i,:].shape) - As[j][i,:])
+
+            for j in range(len(DELTAs)):
+                DELTAs[j] = DELTAs[j] + np.dot(As[j], deltas[j + 1].T)
+
+        Ds = []
+        for i, DELTA in enumerate(DELTAs):
+            D = (1.0/m * DELTA) + (learning_rate*self.Ws[i])
+            if self.bias_on:
+                D[-1] = 1.0/m * DELTA[-1]
+            Ds.append(D)
+
+        #Perform gradient descent using partial derivatives (Ds) on weights (Ws).
+        ##ISSUE: Do until converge
+        alph = 1 ##ISSUE: alpha and learning rate look redundant
+        for i in range(10):
+            for j, W in enumerate(self.Ws):
+                self.Ws[j] = W - alph*Ds[j]
+
+
+
+
+
+
 
 
 
@@ -635,8 +674,10 @@ def shuffle_in_unison_inplace(a, b):
 X = np.array(X)
 X = center(X)
 
-nn = NeuralMat([2, 3, 4, 1], bias_on=True)
-Y = nn.feedforward(X)
+nn = NeuralMat([2, 3, 4, 1], X, bias_on=True)
+nn.backpropagate(targets)
+
+out = nn.feedforward(X[0])
 
 halt = True
 
