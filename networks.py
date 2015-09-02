@@ -96,6 +96,39 @@ class Neuron(Node):
             return 'Neuron object at (no network)'
 
 
+class NeuralMat(object):
+    def __init__(self, layer_specs, bias_on= False):
+        self.Ws = [] #All weight matrices
+        self.layer_specs = layer_specs
+        self.bias_on = bias_on
+
+        for ix, layer in enumerate(layer_specs[0:-1]):
+            self.Ws.append(np.random.randn(layer + bias_on, layer_specs[ix + 1]))
+
+    def feedforward(self, X):
+        assert X.shape[1] == self.layer_specs[0], ("Mismatch in dimensionality of data and input layer.")
+        self.X = X
+        A = X
+        As = [A]
+
+        for W in self.Ws:
+            if self.bias_on:
+                A = np.column_stack((A, np.ones(len(A))))
+
+            A = sigmoid(np.dot(A, W))
+            As.append(A)
+
+        self.As = As
+        Y = As[-1]
+        return Y
+
+    #def backpropagate(self)
+
+
+
+
+
+
 class NeuralNet(object):
     def __init__(self, layer_specs, bias_on= False):
         self.depth = len(layer_specs)
@@ -537,8 +570,10 @@ class Visualizer(object):
         self.last_selected_node = self.selected_node
 
 
-def sigmoid(x):
-    return 1/(1 + math.e**(-x))
+def sigmoid(X):
+    Y = 1.0/(1 + math.e**(-X))
+    return Y
+
 
 def logit(x):
     return np.log(x/(1 - x))
@@ -592,32 +627,37 @@ def shuffle_in_unison_inplace(a, b):
 
 [X, targets] = load_data('two_class_2D.txt', labeled= True)
 
-nn = NeuralNet([2, 3, 4, 2], bias_on= True)
+#nn = NeuralNet([2, 6, 6, 6, 2], bias_on= True)
 
-vis = Visualizer(nn)
+#vis = Visualizer(nn)
 
 #X = np.array(X)[:, 2:4]
 X = np.array(X)
 X = center(X)
 
-##Train
-vis.learn(X, targets, 15, 5)
+nn = NeuralMat([2, 3, 4, 1], bias_on=True)
+Y = nn.feedforward(X)
 
-##Test
-correct = 0
-for i, instance in enumerate(X):
-    out = nn.feedforward(instance)
-    out_int = decide(out)
+halt = True
 
-    if i == 60:
-        halt = True
+###Train
+#vis.learn(X, targets, 500, 100)
 
-    print("out_int: ", [int(x) for x in out_int])
-    print("target:: ", [int(x) for x in targets[i].tolist()])
+###Test
+#correct = 0
+#for i, instance in enumerate(X):
+    #out = nn.feedforward(instance)
+    #out_int = decide(out)
 
-    if (out_int == targets[i]).all():
-        correct += 1
+    #if i == 60:
+        #halt = True
 
-print('accuracy: %s'%str(correct/len(X)))
+    #print("out_int: ", [int(x) for x in out_int])
+    #print("target:: ", [int(x) for x in targets[i].tolist()])
+
+    #if (out_int == targets[i]).all():
+        #correct += 1
+
+#print('accuracy: %s'%str(correct/len(X)))
 
 halt = True
