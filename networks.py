@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import csv
 import time
 
+from scipy.special import expit
+
 from numpy import genfromtxt
 
 plt.ion()
@@ -106,24 +108,27 @@ class NeuralMat(object):
         for ix, layer in enumerate(layer_specs[0:-1]):
             self.Ws.append(np.random.randn(layer + bias_on, layer_specs[ix + 1]))
 
-    def feedforward(self, x):
+    def feedforward(self, X):
         #assert X.shape[1] == self.layer_specs[0], ("Mismatch in dimensionality of data and input layer.")
         #self.X = X
-        A = x
+        A = X
         As = [A]
 
         for W in self.Ws:
             if self.bias_on:
                 A = np.column_stack((A, np.ones(len(A))))
 
-            A = sigmoid(np.dot(A, W))
-            As.append(A)
+            B = np.dot(A, W) #The dot product makes almost every row of B identity. As if W is found s.t A.W is repmat(b).
+            C = expit(B)
+            #A = np.dot(A, W)
+            A = C
+            As.append(C)
 
         self.As = As
         Y = As[-1]
         return Y
 
-    def backpropagate(self, T):
+    def backpropagate(self, Y, T):
         DELTAs = []
         learning_rate = 1
 
@@ -131,18 +136,26 @@ class NeuralMat(object):
             DELTAs.append(np.zeros(W.shape))
 
         training_set = self.X ##ISSUE
+        m = len(training_set)
 
-        deltas = [[] for i in range(len(self.layer_specs))]
-        for i in range(len(training_set)):
-            y = self.feedforward(training_set[i])
-            deltas[len(self.layer_specs)] = y - T[i]
-            #Compute error vectors for each hidden layer:
-            for j in range(len(self.Ws)-1, -1, -1):
-                deltas[j] = np.dot(self.W[j], delta[j + 1]) * As[j][i,:] * (np.ones(As[j][i,:].shape) - As[j][i,:])
+        deltas = [[] for i in range(len(self.layer_specs))] #No error associated with input layer. 0 element should be empty list.
 
-            for j in range(len(DELTAs)):
-                DELTAs[j] = DELTAs[j] + np.dot(As[j], deltas[j + 1].T)
+        As = self.As
+        if self.bias_on:
+            for i in range(len(As)):
+                As[i] = np.column_stack((As[i], np.ones((len(As[i]), 1))))
 
+        deltas[len(self.layer_specs) - 1] = Y - T
+        for j in range(len(self.Ws)-1, 0, -1):
+            deltas[j] = np.dot(deltas[j + 1], self.Ws[j].T) * As[j] * (np.ones(As[j].shape) - As[j])
+
+        for j in range(len(DELTAs)):
+            if self.bias_on:
+                DELTAs[j] = DELTAs[j] + np.dot(self.As[j].T, deltas[j + 1][:,:-1])
+            else:
+                DELTAs[j] = DELTAs[j] + np.dot(self.As[j].T, deltas[j + 1])
+
+        #Suspect problem is here:
         Ds = []
         for i, DELTA in enumerate(DELTAs):
             D = (1.0/m * DELTA) + (learning_rate*self.Ws[i])
@@ -150,20 +163,7 @@ class NeuralMat(object):
                 D[-1] = 1.0/m * DELTA[-1]
             Ds.append(D)
 
-        #Perform gradient descent using partial derivatives (Ds) on weights (Ws).
-        ##ISSUE: Do until converge
-        alph = 1 ##ISSUE: alpha and learning rate look redundant
-        for i in range(10):
-            for j, W in enumerate(self.Ws):
-                self.Ws[j] = W - alph*Ds[j]
-
-
-
-
-
-
-
-
+        return Ds
 
 
 
@@ -610,7 +610,11 @@ class Visualizer(object):
 
 
 def sigmoid(X):
-    Y = 1.0/(1 + math.e**(-X))
+    #Y = 1.0/(1 + math.e**(-X))
+    Y = np.zeros(X.shape)
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+            Y[i, j] = 1.0/(1.0 + math.e**(-1*X[i, j]))
     return Y
 
 
@@ -618,10 +622,14 @@ def logit(x):
     return np.log(x/(1 - x))
 
 def center(X):
-    for row in X:
-        row -= np.mean(X)
+    Y = X
+    for i, row in enumerate(X):
+        #row -= np.mean(X)
+        Y[i] -= np.mean(row)
 
-    return X
+    Y = X / X.max(axis=0)
+
+    return Y
 
 def load_data(filename, labeled = True):
     obs_mat = []
@@ -656,7 +664,10 @@ def load_data(filename, labeled = True):
     return obs_mat
 
 def decide(vec):
-    out= (vec > 0.5).astype(int)
+    #out= (vec > 0.5).astype(int)
+    out = [0, 0]
+    out[list(vec).index(max(vec))] = 1
+
     return out
 
 def shuffle_in_unison_inplace(a, b):
@@ -672,12 +683,41 @@ def shuffle_in_unison_inplace(a, b):
 
 #X = np.array(X)[:, 2:4]
 X = np.array(X)
-X = center(X)
+#X = center(X)
 
-nn = NeuralMat([2, 3, 4, 1], X, bias_on=True)
-nn.backpropagate(targets)
+nn = NeuralMat([2, 3, 2], X, bias_on= True)
+#for i in range(15):
+    #shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
 
-out = nn.feedforward(X[0])
+    #Y = nn.feedforward(shuff_X)
+    #nn.backpropagate(Y, shuff_tars)
+
+#for i in range(10):
+    #shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
+    #Y = nn.feedforward(shuff_X)
+    #nn.backpropagate(Y, shuff_tars)
+
+
+#Perform gradient descent using partial derivatives (Ds) on weights (Ws).
+##ISSUE: Do until converge
+alph = 0.7 ##ISSUE: alpha and learning rate look redundant
+for i in range(15):
+    shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
+    Y = nn.feedforward(shuff_X)
+    Ds = nn.backpropagate(Y, shuff_tars)
+
+    for j, W in enumerate(nn.Ws):
+        nn.Ws[j] = W - alph*Ds[j]
+
+Y = nn.feedforward(X)
+
+print("TARGETS:")
+for t in targets:
+    print(t)
+
+print("OUTS:")
+for y in Y:
+    print((y))
 
 halt = True
 
