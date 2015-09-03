@@ -99,6 +99,9 @@ class Neuron(Node):
 
 
 class NeuralMat(object):
+    """
+    Matrix implementation of a feedforward neural network.
+    """
     def __init__(self, layer_specs, X, bias_on= False):
         self.Ws = [] #All weight matrices
         self.layer_specs = layer_specs
@@ -106,65 +109,88 @@ class NeuralMat(object):
         self.X = X
 
         for ix, layer in enumerate(layer_specs[0:-1]):
-            self.Ws.append(np.random.randn(layer + bias_on, layer_specs[ix + 1]))
+            d = layer + bias_on
+            self.Ws.append(np.random.uniform(-1.0/np.sqrt(d), 1.0/np.sqrt(d),
+                                             [d, layer_specs[ix + 1]]))
 
-    def feedforward(self, X):
+    def classify(self, X):
+        """
+        Given X an n x m matrix of n examples with m features, produces a list 'As' of activation matrices
+        at each layer by multiplying X with weight matrices Ws, and passing outputs through activation function.
+        Should be used to get activations after network has been trained.
+
+        """
         #assert X.shape[1] == self.layer_specs[0], ("Mismatch in dimensionality of data and input layer.")
-        #self.X = X
         A = X
         As = [A]
-
         for W in self.Ws:
             if self.bias_on:
                 A = np.column_stack((A, np.ones(len(A))))
 
-            B = np.dot(A, W) #The dot product makes almost every row of B identity. As if W is found s.t A.W is repmat(b).
-            C = expit(B)
-            #A = np.dot(A, W)
-            A = C
-            As.append(C)
+            O = np.dot(A, W)
+            A = expit(O)
+
+            As.append(A)
 
         self.As = As
-        Y = As[-1]
-        return Y
+        return As
 
-    def backpropagate(self, Y, T):
-        DELTAs = []
-        learning_rate = 1
+    def forwardprop(self, instance):
+        """
+        Passes a single instance (row of X) through the weight matrices, producing activation vectors at each layer.
+        Can be used to classify a single instance, or during the forward-propagation step of training.
+        """
+        x = instance.copy()
+        if len(x.shape) == 1:
+            x = x[np.newaxis]
 
+        z = x.copy()
+        zs = [z]
         for W in self.Ws:
-            DELTAs.append(np.zeros(W.shape))
-
-        training_set = self.X ##ISSUE
-        m = len(training_set)
-
-        deltas = [[] for i in range(len(self.layer_specs))] #No error associated with input layer. 0 element should be empty list.
-
-        As = self.As
-        if self.bias_on:
-            for i in range(len(As)):
-                As[i] = np.column_stack((As[i], np.ones((len(As[i]), 1))))
-
-        deltas[len(self.layer_specs) - 1] = Y - T
-        for j in range(len(self.Ws)-1, 0, -1):
-            deltas[j] = np.dot(deltas[j + 1], self.Ws[j].T) * As[j] * (np.ones(As[j].shape) - As[j])
-
-        for j in range(len(DELTAs)):
             if self.bias_on:
-                DELTAs[j] = DELTAs[j] + np.dot(self.As[j].T, deltas[j + 1][:,:-1])
+                z = np.column_stack((z, [1.0]))
+
+            z = sigmoid(np.dot(z, W))
+            zs.append(z)
+
+        self.zs = zs
+        return z
+
+
+    def backprop(self, t):
+        """
+        note: assumes sigmoid activation function.
+        """
+        lr = 1
+        Es = [[] for i in range(len(self.zs))]
+
+        for l in range(len(self.zs)-1, 0, -1):
+
+            if l == len(self.zs) - 1:
+                #Calculate output neuron errors:
+                Es[l] = self.zs[l] * (np.ones(self.zs[l].shape) - self.zs[l]) * (t - self.zs[l])
             else:
-                DELTAs[j] = DELTAs[j] + np.dot(self.As[j].T, deltas[j + 1])
+                #Calculate hidden neuron errors:
+                z = self.zs[l]
+                E = Es[l + 1]
+                if self.bias_on:
+                    z = np.column_stack((z, np.ones(len(z))))
+                    if l + 1 < len(self.zs) - 1:
+                        E = E[:,0:-1]
 
-        #Suspect problem is here:
-        Ds = []
-        for i, DELTA in enumerate(DELTAs):
-            D = (1.0/m * DELTA) + (learning_rate*self.Ws[i])
+                #Es[l] = z * (np.ones(z.shape) - z) * np.dot(Es[l + 1], self.Ws[l].T)
+                Es[l] = z * (np.ones(z.shape) - z) * np.dot(E, self.Ws[l].T)
+
+
+            z = self.zs[l - 1]
+            E = Es[l]
             if self.bias_on:
-                D[-1] = 1.0/m * DELTA[-1]
-            Ds.append(D)
+                z = np.column_stack((z, np.ones(len(z))))
+                if l < len(self.zs) - 1:
+                    E = E[:,0:-1]
 
-        return Ds
-
+            #Update weights
+            self.Ws[l - 1] = self.Ws[l - 1] + lr * np.dot(z.T, E)
 
 
 
@@ -182,7 +208,7 @@ class NeuralNet(object):
         for i, num_nodes in enumerate(layer_specs):
             layer = []
             for j in range(num_nodes):
-                neuron = Neuron(sigmoid, 0.6)
+                neuron = Neuron(expit, 0.6)
                 neuron.coords = (i, j)
 
                 #Unless this is the input layer, connect each neuron to every neuron on the afferent layer.
@@ -197,7 +223,7 @@ class NeuralNet(object):
         #Include bias nodes.
         if bias_on:
             for layer in self.layers[0:-1]:
-                bias = Neuron(sigmoid, 0.6, bias= True)
+                bias = Neuron(expit, 0.6, bias= True)
                 bias.activation = 1
                 bias.coords = (self.layers.index(layer), len(layer))
 
@@ -545,9 +571,6 @@ class Visualizer(object):
         self.dDisplay.update_dimension(W.shape[1])
 
 
-
-
-
     def draw_DB_points(self, node):
         M = np.dot(node.boundary['pts'].transpose(), self.dDisplay.P)
 
@@ -621,13 +644,9 @@ def sigmoid(X):
 def logit(x):
     return np.log(x/(1 - x))
 
-def center(X):
-    Y = X
-    for i, row in enumerate(X):
-        #row -= np.mean(X)
-        Y[i] -= np.mean(row)
-
-    Y = X / X.max(axis=0)
+def standardize(X):
+    Y = X.copy() - np.mean(X)
+    Y = Y/np.std(Y)
 
     return Y
 
@@ -665,7 +684,7 @@ def load_data(filename, labeled = True):
 
 def decide(vec):
     #out= (vec > 0.5).astype(int)
-    out = [0, 0]
+    out = [0]*len(vec)
     out[list(vec).index(max(vec))] = 1
 
     return out
@@ -675,70 +694,50 @@ def shuffle_in_unison_inplace(a, b):
     p = np.random.permutation(len(a))
     return a[p], b[p]
 
-[X, targets] = load_data('two_class_2D.txt', labeled= True)
+[X, targets] = load_data('concentric_rings.txt', labeled= True)
+#[X, targets] = load_data('iris_data.txt', labeled= True)
 
-#nn = NeuralNet([2, 6, 6, 6, 2], bias_on= True)
+def test_NeuralNet(X, train = False):
+    nn = NeuralNet([2, 3, 2], bias_on= True)
 
-#vis = Visualizer(nn)
+    if train:
+        for it in range(1, 100):
+            shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
+
+            for i, instance in enumerate(shuff_X):
+                nn.feedforward(instance)
+                nn.backpropagate(shuff_tars[i], show= False)
+
+
+    for x in X:
+        out = nn.feedforward(x)
+        out_int = decide(out)
+        print(out_int)
+
+    halt = True
 
 #X = np.array(X)[:, 2:4]
 X = np.array(X)
-#X = center(X)
+X = standardize(X)
 
-nn = NeuralMat([2, 3, 2], X, bias_on= True)
-#for i in range(15):
-    #shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
+#test_NeuralNet(X, train= True)
+nm = NeuralMat([2, 30, 2], X, bias_on= True)
 
-    #Y = nn.feedforward(shuff_X)
-    #nn.backpropagate(Y, shuff_tars)
+for j in range(15):
+    shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
+    for i, x in enumerate(shuff_X):
+        nm.forwardprop(x)
+        nm.backprop(shuff_targets[i])
 
-#for i in range(10):
-    #shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
-    #Y = nn.feedforward(shuff_X)
-    #nn.backpropagate(Y, shuff_tars)
+Y = nm.classify(X)[-1]
+t = 0
+c = 0
+for i, y in enumerate(Y):
+    print(decide(y))
+    if (decide(y) == targets[i]).all():
+        c += 1
+    t += 1
 
-
-#Perform gradient descent using partial derivatives (Ds) on weights (Ws).
-##ISSUE: Do until converge
-alph = 0.7 ##ISSUE: alpha and learning rate look redundant
-for i in range(15):
-    shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
-    Y = nn.feedforward(shuff_X)
-    Ds = nn.backpropagate(Y, shuff_tars)
-
-    for j, W in enumerate(nn.Ws):
-        nn.Ws[j] = W - alph*Ds[j]
-
-Y = nn.feedforward(X)
-
-print("TARGETS:")
-for t in targets:
-    print(t)
-
-print("OUTS:")
-for y in Y:
-    print((y))
-
-halt = True
-
-###Train
-#vis.learn(X, targets, 500, 100)
-
-###Test
-#correct = 0
-#for i, instance in enumerate(X):
-    #out = nn.feedforward(instance)
-    #out_int = decide(out)
-
-    #if i == 60:
-        #halt = True
-
-    #print("out_int: ", [int(x) for x in out_int])
-    #print("target:: ", [int(x) for x in targets[i].tolist()])
-
-    #if (out_int == targets[i]).all():
-        #correct += 1
-
-#print('accuracy: %s'%str(correct/len(X)))
+print("Accuracy: ", c/t)
 
 halt = True
