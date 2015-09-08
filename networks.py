@@ -505,7 +505,11 @@ class Visualizer(object):
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
+        self.unit_art = []
         self.param_art = []
+
+        self.currLayer = 0
+        self.lay_bttn_axes = []
 
         self.selected_node = None
 
@@ -524,12 +528,18 @@ class Visualizer(object):
         self.ax.set_ylim((-0.5, depth-0.5))
 
         if isinstance(model, NeuralMat):
+            plt.figure(self.fig.number) #Set current figure.
+
             #Won't actually use values of W. Just want list of the same size.
             self.param_art = [W.tolist() for W in self.model.Ws]
-            for l, layer_size in enumerate(specs):
 
-                if l == len(specs) - 1:
-                    halt = True
+            for l, layer_size in enumerate(specs):
+                self.unit_art.append([])
+
+                bttn_axes = plt.axes([0.01, 0.02 + 0.1*l, 0.05, 0.05])
+                lay_button = mpl.widgets.Button(bttn_axes, str(l))
+                self.lay_bttn_axes.append(bttn_axes)
+                lay_button.on_clicked(self.change_layer)
 
                 for i in range(layer_size):
                     #[x, y] = self.coords_to_pos([i, j], layer_size)
@@ -539,6 +549,8 @@ class Visualizer(object):
                         nodeart = NodeArt(layer= l, position= i, layer_size= layer_size, color='k', markerfacecolor= 'w', zorder= 10)
                     h = self.ax.add_artist(nodeart)
                     h.set_picker(3.5)
+
+                    self.unit_art[l].append(nodeart)
 
                     #if l < len(model.layer_specs) - 1:
                     if l < len(specs) - 1:
@@ -581,6 +593,7 @@ class Visualizer(object):
         #self.ax.autoscale()
         self.fig.canvas.draw()
 
+
     def update_params(self, new_pars):
         for l in range(len(new_pars)):
             for i in range(len(new_pars[l])):
@@ -607,15 +620,37 @@ class Visualizer(object):
                 if isinstance(self.model, NeuralMat):
                     self.model.forwardprop(instance)
                     self.model.backprop(shuff_tars[i])
-                    #print('HIT', i)
-
-                    #self.update_params(self.model.Ws)
 
             if it % interval == 0:
                 #self.model.backpropagate(shuff_tars[i], show= True)
                 self.update_params(self.model.Ws)
+
+                #Show changed data.
+                #layer = self.selected_layer
+                layer = 1
+                self.model.classify(X)
+                A = self.model.As[layer]
+                Y = standardize(A)
+
+                self.dDisplay.add_data(Y, targets = targets)
+
                 time.sleep(0.1)
                 self.fig.canvas.draw()
+
+    def change_layer(self, ev):
+        self.currLayer = self.lay_bttn_axes.index(ev.inaxes)
+        X = self.model.As[self.currLayer]
+        Y = standardize(X)
+
+        for unit in self.unit_art[self.currLayer]:
+            unit.set_markerfacecolor('c')
+
+        if hasattr(self, 'prevLayer'):
+            for unit in self.unit_art[self.prevLayer]:
+                unit.set_markerfacecolor('w')
+
+        self.prevLayer = self.currLayer
+        self.dDisplay.add_data(Y)
 
     def change_space(self, layer):
         ##ISSUE: Because this appends a 1 vector each time, only goes up in dimensionality. Never down.
@@ -708,15 +743,18 @@ class Visualizer(object):
                 self.change_space(layer)
 
         elif isinstance(self.model, NeuralMat):
-            layer = self.selected_node.y
-            X = self.model.As[layer]
-            Y = standardize(X)
+            #layer = self.selected_node.y
+            #X = self.model.As[layer]
+            #Y = standardize(X)
 
-            self.dDisplay.add_data(Y)
-            #halt = True
+            #self.dDisplay.add_data(Y)
+            halt = True
 
         if hasattr(self, 'last_selected_node'):
-            self.last_selected_node.set_markerfacecolor('w')
+            if self.last_selected_node.y == self.currLayer:
+                self.last_selected_node.set_markerfacecolor('c')
+            else:
+                self.last_selected_node.set_markerfacecolor('w')
         self.last_selected_node = self.selected_node
 
         #self.fig.canvas.draw()
@@ -820,7 +858,7 @@ X = standardize(X)
 nm = NeuralMat([2, 5, 2], X, bias_on = True)
 vis = Visualizer(nm)
 
-vis.learn(X, targets, 100, 10)
+vis.learn(X, targets, 30, 30)
 
 #for j in range(15):
     #shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
