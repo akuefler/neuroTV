@@ -337,7 +337,11 @@ class DataDisplay(object):
         self.fig, ax = plt.subplots(1, 1)
         self.ax = ax
 
+        self.ax.set_xlim([-2.5, 2.5])
+        self.ax.set_ylim([-2.5, 2.5])
+
         self.X = X
+        self.targets = None
 
         self.vis = visualizer
 
@@ -386,11 +390,14 @@ class DataDisplay(object):
         self.P[:, x_or_y] = np.dot(np.dot(np.dot(self.Q[x_or_y], R), self.Q[x_or_y].T), self.P[:, x_or_y].T).T
 
         self.draw_data()
+        #self.ax.autoscale()
+
 
 
     def add_data(self, X= None, targets= None):
         self.X = X
-        self.targets = targets
+        if self.targets is None:
+            self.targets = targets
         self.currDim = X.shape[1]
 
         self.setup_DataDisplay()
@@ -435,7 +442,7 @@ class DataDisplay(object):
             self.rot_buttons['y'].append(roty_button)
 
         self.draw_data()
-        self.ax.autoscale()
+        #self.ax.autoscale()
 
 
     def draw_data(self):
@@ -483,7 +490,7 @@ class DataDisplay(object):
             self.D[clss]['data'] = np.array(self.D[clss]['data'])
 
         self.draw_data()
-        self.ax.autoscale()
+        #self.ax.autoscale()
 
 
 class Visualizer(object):
@@ -700,13 +707,19 @@ class Visualizer(object):
                 layer = self.model.layers[self.selected_node.node.coords[0]]
                 self.change_space(layer)
 
-            if hasattr(self, 'last_selected_node'):
-                self.last_selected_node.set_markerfacecolor('w')
-
         elif isinstance(self.model, NeuralMat):
-            halt = True
+            layer = self.selected_node.y
+            X = self.model.As[layer]
+            Y = standardize(X)
 
+            self.dDisplay.add_data(Y)
+            #halt = True
+
+        if hasattr(self, 'last_selected_node'):
+            self.last_selected_node.set_markerfacecolor('w')
         self.last_selected_node = self.selected_node
+
+        #self.fig.canvas.draw()
 
 
 def sigmoid(X):
@@ -722,7 +735,12 @@ def logit(x):
     return np.log(x/(1 - x))
 
 def standardize(X):
+    Y = X.copy()
     Y = X.copy() - np.mean(X)
+    #for i in range(len(Y)):
+        #Y[i][0] -= np.mean(X[:,0])
+        #Y[i][1] -= np.mean(X[:,1])
+
     Y = Y/np.std(Y)
 
     return Y
@@ -802,7 +820,7 @@ X = standardize(X)
 nm = NeuralMat([2, 5, 2], X, bias_on = True)
 vis = Visualizer(nm)
 
-vis.learn(X, targets, 100, 1)
+vis.learn(X, targets, 100, 10)
 
 #for j in range(15):
     #shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
