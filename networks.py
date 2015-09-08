@@ -333,6 +333,16 @@ class NeuralNet(object):
         neuron.boundary= {'basis':basis, 'span': span, 'offset':offset}
 
 class DataDisplay(object):
+    """
+    Module for visualizing and interacting with data.
+
+    High-dimensional data can be plotted as 2D projects which the user can rotate with buttons
+    provided on the side. Uses system for rotating 2D projections described in:
+
+    Cowley, B. R., Kaufman, M. T., Butler, Z. S., Churchland, M. M., Ryu, S. I., Shenoy, K. V., & Yu, B. M. (2013).
+    DataHigh: Graphical user interface for visualizing and interacting with high-dimensional neural activity.
+    J. Neural Eng., 10, 19.
+    """
     def __init__(self, visualizer, X= None):
         self.fig, ax = plt.subplots(1, 1)
         self.ax = ax
@@ -393,7 +403,6 @@ class DataDisplay(object):
         #self.ax.autoscale()
 
 
-
     def add_data(self, X= None, targets= None):
         self.X = X
         if self.targets is None:
@@ -403,10 +412,13 @@ class DataDisplay(object):
         self.setup_DataDisplay()
         self.update_dimension(self.currDim)
 
-        #string = ("Current Dimensionality: %s" %self.currDim)
-        #self.ax.set_title(string)
 
     def update_dimension(self, newDim):
+        """
+        Sets attribute currDim to newDim. Updates the current dimensionality than can be displayed by
+        adding buttons to rotate data through newDim dimensions. Creates a new P matrix with
+        the currDim x 2 shape.
+        """
         self.currDim = newDim
 
         self.create_P()
@@ -442,10 +454,12 @@ class DataDisplay(object):
             self.rot_buttons['y'].append(roty_button)
 
         self.draw_data()
-        #self.ax.autoscale()
 
 
     def draw_data(self):
+        """
+        Clears DataDisplay axes and (re)plots the data X.
+        """
         self.ax.cla()
         string = ("Current Dimensionality: %s" % self.currDim)
         self.ax.set_title(string)
@@ -461,6 +475,10 @@ class DataDisplay(object):
         self.fig.canvas.draw()
 
     def create_P(self):
+        """
+        Creates a 2D matrix P upon which high-dimensional data are projected
+        before they can be plotted.
+        """
         ##Prepare P
         if self.currDim > 2:
             self.P = np.eye(self.currDim)
@@ -492,16 +510,18 @@ class DataDisplay(object):
         self.draw_data()
         #self.ax.autoscale()
 
-
-class Visualizer(object):
-    def __init__(self, model):
+class NetworkDisplay(object):
+    """
+    Module for visualizing and interacting with network models.
+    """
+    def __init__(self, visualizer, model):
         self.fig, ax = plt.subplots(1, 1)
         self.ax = ax
 
-        #Initialize display modules
-        self.dDisplay = DataDisplay(self)
-        ##self.nDisplay = NetworkDisplay(self) #Not yet implemented.
+        self.ax.set_xlim([-2.5, 2.5])
+        self.ax.set_ylim([-2.5, 2.5])
 
+        self.vis = visualizer
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
@@ -513,6 +533,14 @@ class Visualizer(object):
 
         self.selected_node = None
 
+        self.setup_NetworkDisplay()
+        #if self.X is not None:
+            #self.currDim = self.X.shape[1]
+            #self.setup_DataDisplay()
+            #self.draw_data()
+
+    def setup_NetworkDisplay(self):
+
         if self.model.bias_on:
             specs = self.model.layer_specs
             for i in range(len(self.model.layer_specs[:-1])):
@@ -521,13 +549,13 @@ class Visualizer(object):
             specs = self.layer_specs
 
 
-        depth = len(model.layer_specs)
-        network_width = max(model.layer_specs)
+        depth = len(self.model.layer_specs)
+        network_width = max(self.model.layer_specs)
 
         self.ax.set_xlim((-network_width/2, network_width/2))
         self.ax.set_ylim((-0.5, depth-0.5))
 
-        if isinstance(model, NeuralMat):
+        if isinstance(self.model, NeuralMat):
             plt.figure(self.fig.number) #Set current figure.
 
             #Won't actually use values of W. Just want list of the same size.
@@ -539,11 +567,11 @@ class Visualizer(object):
                 bttn_axes = plt.axes([0.01, 0.02 + 0.1*l, 0.05, 0.05])
                 lay_button = mpl.widgets.Button(bttn_axes, str(l))
                 self.lay_bttn_axes.append(bttn_axes)
-                lay_button.on_clicked(self.change_layer)
+                lay_button.on_clicked(self.vis.change_layer)
 
                 for i in range(layer_size):
                     #[x, y] = self.coords_to_pos([i, j], layer_size)
-                    if self.model.bias_on and i == model.layer_specs[l] - 1 and l != len(specs)-1:
+                    if self.model.bias_on and i == self.model.layer_specs[l] - 1 and l != len(specs)-1:
                         nodeart = NodeArt(layer= l, position= i, layer_size= layer_size, bias= True, color='k', markerfacecolor= 'w', zorder= 10)
                     else:
                         nodeart = NodeArt(layer= l, position= i, layer_size= layer_size, color='k', markerfacecolor= 'w', zorder= 10)
@@ -557,26 +585,26 @@ class Visualizer(object):
                         if l + 1 == len(specs) - 1:
                             val = specs[l + 1]
                         else:
-                            val = specs[l + 1] - model.bias_on
+                            val = specs[l + 1] - self.model.bias_on
 
                         for j in range(val):
-                            weight = model.Ws[l][i][j]
+                            weight = self.model.Ws[l][i][j]
                             if np.sign(weight) < 0:
                                 color = [0, 0, 1]
                             else:
                                 color = [1, 0, 0]
 
                             self.param_art[l][i][j] = EdgeLine(i, l, j, l + 1, layer_size, specs[l + 1], \
-                                             linewidth= abs(weight), color= color, zorder= 1)
+                                                               linewidth= abs(weight), color= color, zorder= 1)
                             self.ax.add_artist(self.param_art[l][i][j])
 
 
-        elif isinstance(model, NeuralNet):
-            for layer in model.layers:
+        elif isinstance(self.model, NeuralNet):
+            for layer in self.model.layers:
                 for node in layer:
                     [x, y] = self.coords_to_pos(node.coords, layer)
                     node.art = NodeArt(node, [x, y], bias= node.bias,
-                                           color='k', markerfacecolor= 'w', zorder= 10)
+                                       color='k', markerfacecolor= 'w', zorder= 10)
                     h = self.ax.add_artist(node.art)
                     h.set_picker(3.5)
 
@@ -605,6 +633,45 @@ class Visualizer(object):
                         self.param_art[l][i][j].set_color([1, 0, 0])
 
 
+    def pick_handler(self, ev):
+        self.selected_node = ev.artist
+        self.selected_node.set_markerfacecolor('y')
+
+        if isinstance(self.model, NeuralNet):
+            if self.selected_node.node.boundary is not None:
+                #self.compute_DB_points(self.selected_node.node)
+                #self.draw_DB_points(self.selected_node.node)
+                layer = self.model.layers[self.selected_node.node.coords[0]]
+                self.change_space(layer)
+
+        elif isinstance(self.model, NeuralMat):
+            #layer = self.selected_node.y
+            #X = self.model.As[layer]
+            #Y = standardize(X)
+
+            #self.dDisplay.add_data(Y)
+            halt = True
+
+        if hasattr(self, 'last_selected_node'):
+            if self.last_selected_node.y == self.currLayer:
+                self.last_selected_node.set_markerfacecolor('c')
+            else:
+                self.last_selected_node.set_markerfacecolor('w')
+        self.last_selected_node = self.selected_node
+
+        #self.fig.canvas.draw()
+
+
+class Visualizer(object):
+    """
+    Encapsulates and coordinates between a NetworkDisplay and a DataDisplay object.
+    """
+    def __init__(self, model):
+        #Initialize display modules
+        self.nDisplay = NetworkDisplay(self, model)
+        self.dDisplay = DataDisplay(self)
+        ##self.nDisplay = NetworkDisplay(self) #Not yet implemented.
+
     def learn(self, X, targets, iterations, interval = 5):
         self.dDisplay.add_data(X, targets)
         #self.dDisplay.setup_DataDisplay()
@@ -614,39 +681,39 @@ class Visualizer(object):
             shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
 
             for i, instance in enumerate(shuff_X):
-                if isinstance(self.model, NeuralNet):
-                    self.model.feedforward(instance)
-                    self.model.backpropagate(shuff_tars[i], show= False)
-                if isinstance(self.model, NeuralMat):
-                    self.model.forwardprop(instance)
-                    self.model.backprop(shuff_tars[i])
+                if isinstance(self.nDisplay.model, NeuralNet):
+                    self.nDisplay.model.feedforward(instance)
+                    self.nDisplay.model.backpropagate(shuff_tars[i], show= False)
+                if isinstance(self.nDisplay.model, NeuralMat):
+                    self.nDisplay.model.forwardprop(instance)
+                    self.nDisplay.model.backprop(shuff_tars[i])
 
             if it % interval == 0:
                 #self.model.backpropagate(shuff_tars[i], show= True)
-                self.update_params(self.model.Ws)
+                self.nDisplay.update_params(self.nDisplay.model.Ws)
 
                 #Show changed data.
                 #layer = self.selected_layer
                 layer = 1
-                self.model.classify(X)
-                A = self.model.As[layer]
+                self.nDisplay.model.classify(X)
+                A = self.nDisplay.model.As[layer]
                 Y = standardize(A)
 
                 self.dDisplay.add_data(Y, targets = targets)
 
                 time.sleep(0.1)
-                self.fig.canvas.draw()
+                self.nDisplay.fig.canvas.draw()
 
     def change_layer(self, ev):
-        self.currLayer = self.lay_bttn_axes.index(ev.inaxes)
-        X = self.model.As[self.currLayer]
+        self.currLayer = self.nDisplay.lay_bttn_axes.index(ev.inaxes)
+        X = self.nDisplay.model.As[self.currLayer]
         Y = standardize(X)
 
-        for unit in self.unit_art[self.currLayer]:
+        for unit in self.nDisplay.unit_art[self.currLayer]:
             unit.set_markerfacecolor('c')
 
         if hasattr(self, 'prevLayer'):
-            for unit in self.unit_art[self.prevLayer]:
+            for unit in self.nDisplay.unit_art[self.prevLayer]:
                 unit.set_markerfacecolor('w')
 
         self.prevLayer = self.currLayer
@@ -731,34 +798,6 @@ class Visualizer(object):
         #x = coords[1] - (layer_size-1)/2
         #return [x, y]
 
-    def pick_handler(self, ev):
-        self.selected_node = ev.artist
-        self.selected_node.set_markerfacecolor('y')
-
-        if isinstance(self.model, NeuralNet):
-            if self.selected_node.node.boundary is not None:
-                #self.compute_DB_points(self.selected_node.node)
-                #self.draw_DB_points(self.selected_node.node)
-                layer = self.model.layers[self.selected_node.node.coords[0]]
-                self.change_space(layer)
-
-        elif isinstance(self.model, NeuralMat):
-            #layer = self.selected_node.y
-            #X = self.model.As[layer]
-            #Y = standardize(X)
-
-            #self.dDisplay.add_data(Y)
-            halt = True
-
-        if hasattr(self, 'last_selected_node'):
-            if self.last_selected_node.y == self.currLayer:
-                self.last_selected_node.set_markerfacecolor('c')
-            else:
-                self.last_selected_node.set_markerfacecolor('w')
-        self.last_selected_node = self.selected_node
-
-        #self.fig.canvas.draw()
-
 
 def sigmoid(X):
     #Y = 1.0/(1 + math.e**(-X))
@@ -827,8 +866,8 @@ def shuffle_in_unison_inplace(a, b):
     p = np.random.permutation(len(a))
     return a[p], b[p]
 
-[X, targets] = load_data('concentric_rings.txt', labeled= True)
-#[X, targets] = load_data('iris_data.txt', labeled= True)
+#[X, targets] = load_data('concentric_rings.txt', labeled= True)
+[X, targets] = load_data('iris_data.txt', labeled= True)
 
 def test_NeuralNet(X, train = False):
     nn = NeuralNet([2, 3, 3, 3, 2], bias_on= True)
@@ -840,7 +879,6 @@ def test_NeuralNet(X, train = False):
             for i, instance in enumerate(shuff_X):
                 nn.feedforward(instance)
                 nn.backpropagate(shuff_tars[i], show= False)
-
 
     for x in X:
         out = nn.feedforward(x)
@@ -854,11 +892,10 @@ X = np.array(X)
 X = standardize(X)
 
 #test_NeuralNet(X, train= True)
-#nn = NeuralNet([2, 25, 2], bias_on = True)
-nm = NeuralMat([2, 5, 2], X, bias_on = True)
+nm = NeuralMat([4, 3, 3], X, bias_on = True)
 vis = Visualizer(nm)
 
-vis.learn(X, targets, 30, 30)
+vis.learn(X, targets, 30, 5)
 
 #for j in range(15):
     #shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
