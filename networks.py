@@ -15,12 +15,14 @@ from numpy import genfromtxt
 plt.ion()
 
 class NodeArt(mpl.lines.Line2D):
-    def __init__(self, node, xy, **kwargs):
-        self.node = node
-        self.x = xy[0]
-        self.y = xy[1]
+    def __init__(self, layer, position, layer_size, bias= False, **kwargs):
+        y = layer
+        #ISSUE: layer_size shouldn't have to be a parameter.
+        x = position - (layer_size-1)/2
+        self.y = y
+        self.x = x
 
-        if node.bias == True:
+        if bias:
             marker = 'h'
             ms = 25
         else:
@@ -32,13 +34,17 @@ class NodeArt(mpl.lines.Line2D):
 
 
 class EdgeLine(mpl.lines.Line2D):
-    def __init__(self, edge, x1, y1, x2, y2, **kwargs):
-        self.edge = edge
+    def __init__(self, x1, y1, x2, y2, layer_size, layer_size2, **kwargs):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
         self.y2 = y2
-        mpl.lines.Line2D.__init__(self, [x1, y1], [x2, y2],
+
+        #Store the original x,y in self or this?
+        x1 = x1 - (layer_size-1)/2
+        x2 = x2 - (layer_size2-1)/2
+
+        mpl.lines.Line2D.__init__(self, [x1, x2], [y1, y2],
                  **kwargs)
 
 
@@ -191,6 +197,7 @@ class NeuralMat(object):
 
             #Update weights
             self.Ws[l - 1] = self.Ws[l - 1] + lr * np.dot(z.T, E)
+
 
 
 
@@ -491,33 +498,91 @@ class Visualizer(object):
         self.fig.canvas.mpl_connect("pick_event", self.pick_handler)
 
         self.model = model
+        self.param_art = []
 
         self.selected_node = None
 
-        depth = model.depth
-        network_width = max([len(x) for x in model.layers])
+        if self.model.bias_on:
+            specs = self.model.layer_specs
+            for i in range(len(self.model.layer_specs[:-1])):
+                specs[i] += 1
+        else:
+            specs = self.layer_specs
+
+
+        depth = len(model.layer_specs)
+        network_width = max(model.layer_specs)
 
         self.ax.set_xlim((-network_width/2, network_width/2))
         self.ax.set_ylim((-0.5, depth-0.5))
 
-        for layer in model.layers:
-            for node in layer:
-                [x, y] = self.coords_to_pos(node.coords, layer)
-                node.art = NodeArt(node, [x, y],
-                                       color='k', markerfacecolor= 'w', zorder= 10)
-                h = self.ax.add_artist(node.art)
-                h.set_picker(3.5)
+        if isinstance(model, NeuralMat):
+            #Won't actually use values of W. Just want list of the same size.
+            self.param_art = [W.tolist() for W in self.model.Ws]
+            for l, layer_size in enumerate(specs):
 
-                for synapse in node.in_synapses:
-                    if np.sign(synapse.weight) < 0:
-                        color = [0, 0, 1]
+                if l == len(specs) - 1:
+                    halt = True
+
+                for i in range(layer_size):
+                    #[x, y] = self.coords_to_pos([i, j], layer_size)
+                    if self.model.bias_on and i == model.layer_specs[l] - 1 and l != len(specs)-1:
+                        nodeart = NodeArt(layer= l, position= i, layer_size= layer_size, bias= True, color='k', markerfacecolor= 'w', zorder= 10)
                     else:
-                        color = [1, 0, 0]
+                        nodeart = NodeArt(layer= l, position= i, layer_size= layer_size, color='k', markerfacecolor= 'w', zorder= 10)
+                    h = self.ax.add_artist(nodeart)
+                    h.set_picker(3.5)
 
-                    synapse.line = EdgeLine(synapse, h.x, synapse.node.art.x, h.y, synapse.node.art.y,
-                                            linewidth= abs(synapse.weight), color= color, zorder= 1)
+                    #if l < len(model.layer_specs) - 1:
+                    if l < len(specs) - 1:
+                        if l + 1 == len(specs) - 1:
+                            val = specs[l + 1]
+                        else:
+                            val = specs[l + 1] - model.bias_on
 
-                    self.ax.add_artist(synapse.line)
+                        for j in range(val):
+                            weight = model.Ws[l][i][j]
+                            if np.sign(weight) < 0:
+                                color = [0, 0, 1]
+                            else:
+                                color = [1, 0, 0]
+
+                            self.param_art[l][i][j] = EdgeLine(i, l, j, l + 1, layer_size, specs[l + 1], \
+                                             linewidth= abs(weight), color= color, zorder= 1)
+                            self.ax.add_artist(self.param_art[l][i][j])
+
+
+        elif isinstance(model, NeuralNet):
+            for layer in model.layers:
+                for node in layer:
+                    [x, y] = self.coords_to_pos(node.coords, layer)
+                    node.art = NodeArt(node, [x, y], bias= node.bias,
+                                           color='k', markerfacecolor= 'w', zorder= 10)
+                    h = self.ax.add_artist(node.art)
+                    h.set_picker(3.5)
+
+                    for synapse in node.in_synapses:
+                        if np.sign(synapse.weight) < 0:
+                            color = [0, 0, 1]
+                        else:
+                            color = [1, 0, 0]
+
+                        synapse.line = EdgeLine(synapse, h.x, synapse.node.art.x, h.y, synapse.node.art.y,
+                                                linewidth= abs(synapse.weight), color= color, zorder= 1)
+
+                        self.ax.add_artist(synapse.line)
+        #self.ax.autoscale()
+        self.fig.canvas.draw()
+
+    def update_params(self, new_pars):
+        for l in range(len(new_pars)):
+            for i in range(len(new_pars[l])):
+                for j in range(len(new_pars[l][i])):
+                    self.param_art[l][i][j].set_linewidth(abs(new_pars[l][i][j]))
+                    if new_pars[l][i][j] < 0.0:
+                        self.param_art[l][i][j].set_color([0, 0, 1])
+                    else:
+                        self.param_art[l][i][j].set_color([1, 0, 0])
 
 
     def learn(self, X, targets, iterations, interval = 5):
@@ -529,11 +594,19 @@ class Visualizer(object):
             shuff_X, shuff_tars = shuffle_in_unison_inplace(X, targets)
 
             for i, instance in enumerate(shuff_X):
-                self.model.feedforward(instance)
-                self.model.backpropagate(shuff_tars[i], show= False)
+                if isinstance(self.model, NeuralNet):
+                    self.model.feedforward(instance)
+                    self.model.backpropagate(shuff_tars[i], show= False)
+                if isinstance(self.model, NeuralMat):
+                    self.model.forwardprop(instance)
+                    self.model.backprop(shuff_tars[i])
+                    #print('HIT', i)
+
+                    #self.update_params(self.model.Ws)
 
             if it % interval == 0:
-                self.model.backpropagate(shuff_tars[i], show= True)
+                #self.model.backpropagate(shuff_tars[i], show= True)
+                self.update_params(self.model.Ws)
                 time.sleep(0.1)
                 self.fig.canvas.draw()
 
@@ -611,23 +684,27 @@ class Visualizer(object):
         node.boundary['pts'] = pts + O
 
 
-    def coords_to_pos(self, coords, layer):
-        y = coords[0]
-        x = coords[1] - (len(layer)-1)/2
-        return [x, y]
+    #def coords_to_pos(self, coords, layer_size):
+        #y = coords[0]
+        #x = coords[1] - (layer_size-1)/2
+        #return [x, y]
 
     def pick_handler(self, ev):
         self.selected_node = ev.artist
         self.selected_node.set_markerfacecolor('y')
 
-        if self.selected_node.node.boundary is not None:
-            #self.compute_DB_points(self.selected_node.node)
-            #self.draw_DB_points(self.selected_node.node)
-            layer = self.model.layers[self.selected_node.node.coords[0]]
-            self.change_space(layer)
+        if isinstance(self.model, NeuralNet):
+            if self.selected_node.node.boundary is not None:
+                #self.compute_DB_points(self.selected_node.node)
+                #self.draw_DB_points(self.selected_node.node)
+                layer = self.model.layers[self.selected_node.node.coords[0]]
+                self.change_space(layer)
 
-        if hasattr(self, 'last_selected_node'):
-            self.last_selected_node.set_markerfacecolor('w')
+            if hasattr(self, 'last_selected_node'):
+                self.last_selected_node.set_markerfacecolor('w')
+
+        elif isinstance(self.model, NeuralMat):
+            halt = True
 
         self.last_selected_node = self.selected_node
 
@@ -698,7 +775,7 @@ def shuffle_in_unison_inplace(a, b):
 #[X, targets] = load_data('iris_data.txt', labeled= True)
 
 def test_NeuralNet(X, train = False):
-    nn = NeuralNet([2, 3, 2], bias_on= True)
+    nn = NeuralNet([2, 3, 3, 3, 2], bias_on= True)
 
     if train:
         for it in range(1, 100):
@@ -721,17 +798,21 @@ X = np.array(X)
 X = standardize(X)
 
 #test_NeuralNet(X, train= True)
-nm = NeuralMat([2, 30, 2], X, bias_on= True)
+#nn = NeuralNet([2, 25, 2], bias_on = True)
+nm = NeuralMat([2, 5, 2], X, bias_on = True)
+vis = Visualizer(nm)
 
-for j in range(15):
-    shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
-    for i, x in enumerate(shuff_X):
-        nm.forwardprop(x)
-        nm.backprop(shuff_targets[i])
+vis.learn(X, targets, 100, 1)
+
+#for j in range(15):
+    #shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
+    #for i, x in enumerate(shuff_X):
+        #nm.forwardprop(x)
+        #nm.backprop(shuff_targets[i])
 
 Y = nm.classify(X)[-1]
-t = 0
-c = 0
+t = 0.0
+c = 0.0
 for i, y in enumerate(Y):
     print(decide(y))
     if (decide(y) == targets[i]).all():
