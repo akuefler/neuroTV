@@ -19,6 +19,7 @@ class NodeArt(mpl.lines.Line2D):
         y = layer
         #ISSUE: layer_size shouldn't have to be a parameter.
         x = position - (layer_size-1)/2
+        self.pos = position
         self.y = y
         self.x = x
 
@@ -469,6 +470,19 @@ class DataDisplay(object):
             self.ax.set_autoscale_on(False)
             self.ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
+            if self.vis.plane_pts0 != []:
+                M = np.dot(self.vis.plane_pts0.T, self.P)
+                plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'y', marker= '.', linestyle= '.')
+                self.ax.add_artist(plane)
+
+                M = np.dot(self.vis.plane_pts1.T, self.P)
+                plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'r', marker= '.', linestyle= '.')
+                self.ax.add_artist(plane)
+
+                M = np.dot(self.vis.plane_pts2.T, self.P)
+                plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'b', marker= '.', linestyle= '.')
+                self.ax.add_artist(plane)
+
         #if self.vis.selected_node is not None:
             #self.vis.draw_DB_points(self.vis.selected_node.node)
 
@@ -633,6 +647,57 @@ class NetworkDisplay(object):
                         self.param_art[l][i][j].set_color([1, 0, 0])
 
 
+    def compute_DB_points(self, w, thresh, num_pts = 15, with_offset= True):
+        #if node is not None:
+            #B = node.boundary['basis']
+        #else:
+        n = len(w) - 1
+        #for synapse in neuron.in_synapses:
+            #if not synapse.node.bias:
+                #n += 1
+
+        w1 = w[0]
+
+        #Assumes bias node is last in weight vector.
+        w_new = [-1*w[i]/w1 for i in range(1, n)]
+        offset = np.zeros(n)
+        offset[0] = (logit(thresh) - w[-1])/w1
+
+        span = np.row_stack((w_new, np.eye(n - 1)))
+
+        B, R = np.linalg.qr(span)
+
+        n = np.shape(B)[1]
+        m = num_pts
+        #m = 100 #Number of points to be drawn
+
+        M = []
+
+        #Generates permutation matrix whose elements are scaling constants for the basis vectors.
+        C = np.indices((m,) * n).reshape(n, -1).T - np.ceil(m/2)
+        C = np.array(C)
+
+        M = np.array(M)
+        #pts = np.dot(B, M)
+
+        #pts = np.dot(M, B.transpose())
+        pts = np.dot(C, B.transpose()).transpose()
+
+        if with_offset:
+            O = ml.repmat(offset, np.shape(pts)[1], 1).transpose()
+        else:
+            O = np.zeros(np.shape(pts))
+
+        return [pts + O, pts, pts - O]
+
+        #if node is not None:
+            #if with_offset:
+                #O = ml.repmat(node.boundary['offset'], np.shape(pts)[1], 1).transpose()
+            #else:
+                #O = np.zeros(np.shape(pts))
+
+            #node.boundary['pts'] = pts + O
+
     def pick_handler(self, ev):
         self.selected_node = ev.artist
         self.selected_node.set_markerfacecolor('y')
@@ -648,9 +713,15 @@ class NetworkDisplay(object):
             #layer = self.selected_node.y
             #X = self.model.As[layer]
             #Y = standardize(X)
+            l = self.selected_node.y
+            i = self.selected_node.pos
 
             #self.dDisplay.add_data(Y)
-            halt = True
+            #X = self.model.As[l - 1]
+            W = self.model.Ws[l - 1]
+            w = W[:,i]
+
+            self.vis.draw_DB_points(self.compute_DB_points(w, 0.5, with_offset = True))
 
         if hasattr(self, 'last_selected_node'):
             if self.last_selected_node.y == self.currLayer:
@@ -667,6 +738,10 @@ class Visualizer(object):
     Encapsulates and coordinates between a NetworkDisplay and a DataDisplay object.
     """
     def __init__(self, model):
+        self.plane_pts0 = []
+        self.plane_pts1 = []
+        self.plane_pts2 = []
+
         #Initialize display modules
         self.nDisplay = NetworkDisplay(self, model)
         self.dDisplay = DataDisplay(self)
@@ -708,6 +783,10 @@ class Visualizer(object):
         self.currLayer = self.nDisplay.lay_bttn_axes.index(ev.inaxes)
         X = self.nDisplay.model.As[self.currLayer]
         Y = standardize(X)
+
+        self.plane_pts0 = []
+        self.plane_pts1 = []
+        self.plane_pts2 = []
 
         for unit in self.nDisplay.unit_art[self.currLayer]:
             unit.set_markerfacecolor('c')
@@ -753,50 +832,12 @@ class Visualizer(object):
         self.dDisplay.update_dimension(W.shape[1])
 
 
-    def draw_DB_points(self, node):
-        M = np.dot(node.boundary['pts'].transpose(), self.dDisplay.P)
+    def draw_DB_points(self, pts_list):
+        self.plane_pts0 = pts_list[0]
+        self.plane_pts1 = pts_list[1]
+        self.plane_pts2 = pts_list[2]
 
-        if hasattr(self, 'plane'):
-            try:
-                self.plane.remove()
-            except ValueError:
-                pass
-
-        #self.plane = self.data_ax.scatter(M[:,0], M[:, 1], color = 'y')
-        self.plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'y', marker= '.', linestyle= '.')
-        self.dDisplay.ax.add_artist(self.plane)
-
-    def compute_DB_points(self, node, with_offset= True):
-        B = node.boundary['basis']
-
-        n = np.shape(B)[1]
-        m = 15
-        #m = 100 #Number of points to be drawn
-
-        M = []
-
-        #Generates permutation matrix whose elements are scaling constants for the basis vectors.
-        C = np.indices((m,) * n).reshape(n, -1).T - np.ceil(m/2)
-        C = np.array(C)
-
-        M = np.array(M)
-        #pts = np.dot(B, M)
-
-        #pts = np.dot(M, B.transpose())
-        pts = np.dot(C, B.transpose()).transpose()
-
-        if with_offset:
-            O = ml.repmat(node.boundary['offset'], np.shape(pts)[1], 1).transpose()
-        else:
-            O = np.zeros(np.shape(pts))
-
-        node.boundary['pts'] = pts + O
-
-
-    #def coords_to_pos(self, coords, layer_size):
-        #y = coords[0]
-        #x = coords[1] - (layer_size-1)/2
-        #return [x, y]
+        self.dDisplay.draw_data()
 
 
 def sigmoid(X):
@@ -855,9 +896,9 @@ def load_data(filename, labeled = True):
     return obs_mat
 
 def decide(vec):
-    #out= (vec > 0.5).astype(int)
-    out = [0]*len(vec)
-    out[list(vec).index(max(vec))] = 1
+    out= (vec > 0.5).astype(int)
+    #out = [0]*len(vec)
+    #out[list(vec).index(max(vec))] = 1
 
     return out
 
@@ -866,8 +907,8 @@ def shuffle_in_unison_inplace(a, b):
     p = np.random.permutation(len(a))
     return a[p], b[p]
 
-#[X, targets] = load_data('concentric_rings.txt', labeled= True)
-[X, targets] = load_data('iris_data.txt', labeled= True)
+[X, targets] = load_data('concentric_rings.txt', labeled= True)
+#[X, targets] = load_data('iris_data.txt', labeled= True)
 
 def test_NeuralNet(X, train = False):
     nn = NeuralNet([2, 3, 3, 3, 2], bias_on= True)
@@ -892,10 +933,10 @@ X = np.array(X)
 X = standardize(X)
 
 #test_NeuralNet(X, train= True)
-nm = NeuralMat([4, 3, 3], X, bias_on = True)
+nm = NeuralMat([2, 3, 2], X, bias_on = True)
 vis = Visualizer(nm)
 
-vis.learn(X, targets, 30, 5)
+vis.learn(X, targets, 100, 50)
 
 #for j in range(15):
     #shuff_X, shuff_targets = shuffle_in_unison_inplace(X, targets)
