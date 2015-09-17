@@ -470,16 +470,8 @@ class DataDisplay(object):
             self.ax.set_autoscale_on(False)
             self.ax.scatter(X_lo[:, 0], X_lo[:, 1], color= d['color'])
 
-            if self.vis.plane_pts0 != []:
-                M = np.dot(self.vis.plane_pts0.T, self.P)
-                plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'y', marker= '.', linestyle= '.')
-                self.ax.add_artist(plane)
-
-                M = np.dot(self.vis.plane_pts1.T, self.P)
-                plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'r', marker= '.', linestyle= '.')
-                self.ax.add_artist(plane)
-
-                M = np.dot(self.vis.plane_pts2.T, self.P)
+            if self.vis.plane_pts != []:
+                M = np.dot(self.vis.plane_pts.T, self.P)
                 plane = mpl.lines.Line2D(M[:,0], M[:, 1], color = 'b', marker= '.', linestyle= '.')
                 self.ax.add_artist(plane)
 
@@ -674,7 +666,7 @@ class NetworkDisplay(object):
         M = []
 
         #Generates permutation matrix whose elements are scaling constants for the basis vectors.
-        C = np.indices((m,) * n).reshape(n, -1).T - np.ceil(m/2)
+        C = np.indices((m,) * n).reshape(n, -1).T - np.floor(m/2)
         C = np.array(C)
 
         M = np.array(M)
@@ -688,7 +680,8 @@ class NetworkDisplay(object):
         else:
             O = np.zeros(np.shape(pts))
 
-        return [pts + O, pts, pts - O]
+        #return [pts + O, pts, pts - O]
+        return [pts, O]
 
         #if node is not None:
             #if with_offset:
@@ -721,7 +714,15 @@ class NetworkDisplay(object):
             W = self.model.Ws[l - 1]
             w = W[:,i]
 
-            self.vis.draw_DB_points(self.compute_DB_points(w, 0.5, with_offset = True))
+            if l == len(self.model.Ws):
+                #If final layer, use disc threshold (here 0.5)
+                self.vis.draw_DB_points(self.compute_DB_points(w, 0.5, with_offset = True))
+
+            else:
+                #Take the DB plane points, project them onto earlier W matrix. Display.
+                halt = True
+
+
 
         if hasattr(self, 'last_selected_node'):
             if self.last_selected_node.y == self.currLayer:
@@ -738,9 +739,7 @@ class Visualizer(object):
     Encapsulates and coordinates between a NetworkDisplay and a DataDisplay object.
     """
     def __init__(self, model):
-        self.plane_pts0 = []
-        self.plane_pts1 = []
-        self.plane_pts2 = []
+        self.plane_pts = []
 
         #Initialize display modules
         self.nDisplay = NetworkDisplay(self, model)
@@ -773,6 +772,7 @@ class Visualizer(object):
                 self.nDisplay.model.classify(X)
                 A = self.nDisplay.model.As[layer]
                 Y = standardize(A)
+                #Y = A
 
                 self.dDisplay.add_data(Y, targets = targets)
 
@@ -783,10 +783,9 @@ class Visualizer(object):
         self.currLayer = self.nDisplay.lay_bttn_axes.index(ev.inaxes)
         X = self.nDisplay.model.As[self.currLayer]
         Y = standardize(X)
+        #Y = X
 
-        self.plane_pts0 = []
-        self.plane_pts1 = []
-        self.plane_pts2 = []
+        self.plane_pts = []
 
         for unit in self.nDisplay.unit_art[self.currLayer]:
             unit.set_markerfacecolor('c')
@@ -832,10 +831,12 @@ class Visualizer(object):
         self.dDisplay.update_dimension(W.shape[1])
 
 
-    def draw_DB_points(self, pts_list):
-        self.plane_pts0 = pts_list[0]
-        self.plane_pts1 = pts_list[1]
-        self.plane_pts2 = pts_list[2]
+    def draw_DB_points(self, pts_and_offset):
+        pts = pts_and_offset[0]
+        O = pts_and_offset[1]
+
+        self.plane_pts = standardize(standardize(pts) + standardize(O))
+        #self.plane_pts = standardize((pts) + (O))
 
         self.dDisplay.draw_data()
 
@@ -859,7 +860,8 @@ def standardize(X):
         #Y[i][0] -= np.mean(X[:,0])
         #Y[i][1] -= np.mean(X[:,1])
 
-    Y = Y/np.std(Y)
+    if np.std(Y) != 0:
+        Y = Y/np.std(Y)
 
     return Y
 
