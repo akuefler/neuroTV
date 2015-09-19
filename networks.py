@@ -487,7 +487,7 @@ class DataDisplay(object):
         """
         ##Prepare P
         if self.currDim > 2:
-            self.P = np.eye(self.currDim)
+            self.P = np.eye(self.currDim, 2)
         else:
             self.P = np.eye(2)
 
@@ -722,6 +722,39 @@ class NetworkDisplay(object):
                 #Take the DB plane points, project them onto earlier W matrix. Display.
                 halt = True
 
+                #self.vis.dDisplay.plot()
+
+                #xs = (np.indices((10,)*2).reshape(2, -1).T - 5)/10
+
+                #x0s = []
+                #y0s = []
+
+                #for x in xs:
+                    #self.model.forwardprop(x)
+                    #x0s.append(x[0])
+                    #y0s.append(self.model.zs[l][0][i])
+                ##y0s = [self.model.forwardprop(np.array([x, x]))[0] for x in x0s]
+
+                #self.model.As[l]
+                xs = np.arange(-2, 2, 0.05)
+                ys = []
+
+                a = np.mean(self.model.As[l].T[i])
+
+                w1 = self.model.Ws[l-1].T[i][0]
+                w2 = self.model.Ws[l-1].T[i][1]
+                wb = self.model.Ws[l-1].T[i][2]
+
+                for x in xs:
+                    ys.append(
+                        (logit(a) - x*w2 - wb)/w1
+                    )
+
+
+                self.vis.dDisplay.ax.plot(xs, ys, color= 'b', marker= '.', linestyle= '.')
+                plt.draw()
+
+                #self.vis.draw_DB_points(pts_and_offset)
 
 
         if hasattr(self, 'last_selected_node'):
