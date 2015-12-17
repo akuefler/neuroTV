@@ -19,11 +19,12 @@ class Agent(object):
         raise NotImplementedError
 
 class RandomAgent(Agent):
-    def __init__(self):
+    def __init__(self, mdp):
+        self.mdp = mdp
         pass
 
     def act(self, state):
-        legal = state.getLegalActions(state.pos)
+        legal = self.mdp.getLegalActions(state.pos)
         action = legal[random.randint(0, len(legal)-1)]
         return action
 
@@ -34,16 +35,20 @@ class VIagent(Agent):
     def __init__(self, mdp):
         self.V = np.zeros(NUM_TILES*NUM_TILES)
         self.mdp = mdp
+
+        #Value Iteration assumes these are known
+        self.Psa = self.mdp.Psa
+        self.R = self.mdp.R
         pass
 
-    def alg(self, TOL= 0.01):
+    def valueIteration(self, TOL= 0.01):
         c= 0
         oldV = self.V.copy()
         while True:
             for state in range(0, len(self.V)):
-                expValue = max(np.dot(self.mdp.Psa[:,state,:], oldV))
+                expValue = max(np.dot(self.Psa[:,state,:], oldV))
 
-                self.V[state] = self.mdp.R[state] + \
+                self.V[state] = self.R[state] + \
                     self.mdp.discount * expValue
 
             diff = np.linalg.norm(self.V - oldV)
@@ -56,7 +61,30 @@ class VIagent(Agent):
         pass
 
     def act(self, state):
-        pass
+        """
+        Pick actions as argmax of expected value of values found in value iteration.
+        """
+        legal = self.mdp.getLegalActions(state.pos, returnInts= True)
+        s = sub2ind(state.pos)
+        v = np.dot(self.Psa[:, s, :], self.V)
+        sortv = np.argsort(v)[::-1]
+        for idx in sortv:
+            if idx in legal:
+                a = idx
+                break
+
+        np.argmax(a)
+
+        if a == 0:
+            action = 'up'
+        elif a == 1:
+            action = 'down'
+        elif a == 2:
+            action = 'left'
+        elif a == 3:
+            action = 'right'
+
+        return action
 
 class MDP(object):
     def __init__(self, startPos, goalTiles, failTiles, slipTiles, discount = 0.95):
@@ -101,16 +129,16 @@ class MDP(object):
                ind2sub(state) in self.goalTiles:
                 continue
 
-            legal = self.state.getLegalActions(ind2sub(state))
+            legal = self.getLegalActions(ind2sub(state))
 
             for i, action in enumerate(['up', 'down', 'left', 'right']):
                 if action in legal:
                     if ind2sub(state) in self.slipTiles:
                         for slip in legal:
-                            succ = sub2ind(self.state.generateSuccessor(ind2sub(state), slip, determine= True))
+                            succ = sub2ind(self.generateSuccessor(ind2sub(state), slip, determine= True))
                             Psa[i, state, succ] = 1.0/len(legal)
                     else:
-                        succ = sub2ind(self.state.generateSuccessor(ind2sub(state), action))
+                        succ = sub2ind(self.generateSuccessor(ind2sub(state), action))
                         if succ == 1:
                             pass
                         if state == 1:
@@ -119,10 +147,55 @@ class MDP(object):
 
         return Psa
 
+    def generateSuccessor(self, pos, action, determine= False):
+        ##ISSUE: Use of determine kw inelegant.
+        #Slip occurs
+        if pos in self.slipTiles and not determine:
+            alts = self.getLegalActions(pos)
+            action = alts[random.randint(0, len(alts)-1)]
+
+        successor = pos.copy()
+        if action == 'up':
+            successor[0] -= 1
+        elif action == 'down':
+            successor[0] += 1
+        elif action == 'left':
+            successor[1] -= 1
+        elif action == 'right':
+            successor[1] += 1
+
+        assert successor != pos
+        assert successor[0] >= 0 and successor[1] >= 0
+        return successor
+
+    def getLegalActions(self, pos, returnInts = False):
+        ##ISSUE: Doesn't make sense to keep this part of "State".
+        actions = []
+        actints = []
+
+        if pos[0] != NUM_TILES-1:
+            actions.append('down')
+            actints.append(1)
+        if pos[1] != NUM_TILES-1:
+            actions.append('right')
+            actints.append(3)
+        if pos[0] != 0:
+            actions.append('up')
+            actints.append(0)
+        if pos[1] != 0:
+            actions.append('left')
+            actints.append(2)
+
+        out = actions
+        if returnInts:
+            out = actints
+        return out
+
     def updateState(self, action):
-        newPos = self.state.generateSuccessor(self.state.pos, action)
+        newPos = self.generateSuccessor(self.state.pos, action)
         self.state = State(self, newPos)
         self.reward += self.state.getReward()
+
 
 class State(MDP):
     def __init__(self, mdp, position):
@@ -143,50 +216,18 @@ class State(MDP):
 
         return reward
 
-    def generateSuccessor(self, pos, action, determine= False):
-        ##ISSUE: Use of determine kw inelegant.
-        #Slip occurs
-        if pos in self.mdp.slipTiles and not determine:
-            alts = self.getLegalActions(pos)
-            action = alts[random.randint(0, len(alts)-1)]
 
-        successor = pos.copy()
-        if action == 'up':
-            successor[0] -= 1
-        elif action == 'down':
-            successor[0] += 1
-        elif action == 'left':
-            successor[1] -= 1
-        elif action == 'right':
-            successor[1] += 1
-
-        assert successor != pos
-        return successor
-
-    def getLegalActions(self, pos):
-        ##ISSUE: Doesn't make sense to keep this part of "State".
-        actions = []
-        if pos[0] != NUM_TILES-1:
-            actions.append('down')
-        if pos[1] != NUM_TILES-1:
-            actions.append('right')
-        if pos[0] != 0:
-            actions.append('up')
-        if pos[1] != 0:
-            actions.append('left')
-
-        assert actions != []
-        return actions
-
-ra = RandomAgent()
-mdp = MDP([0, 0], [[NUM_TILES-1, NUM_TILES-1]], [[0, 1],[1, 3]], [[1, 0],[2, 1]])
+#mdp = MDP([0, 0], goalTiles=[[NUM_TILES-1, NUM_TILES-1]], failTiles=[[0, 1],[1, 3]], slipTiles=[[1, 0],[2, 1]])
+mdp = MDP([0, 0], goalTiles=[[NUM_TILES-1, 0]], failTiles=[[1, 1],[2, 2],[2, 1],[1, 2]], slipTiles=[[1, 0],[2, 0]])
+ra = RandomAgent(mdp)
 
 vi = VIagent(mdp)
-vi.alg()
+vi.valueIteration()
 
 currState = mdp.state
 while not currState.isEnd():
-    action= ra.act(currState)
+    #action= ra.act(currState)
+    action= vi.act(currState)
     print(action)
     mdp.updateState(action)
     print(mdp.reward)
