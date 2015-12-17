@@ -1,6 +1,7 @@
 import random
 import numpy as np
 NUM_TILES = 4
+NUM_ACTIONS = 4
 
 def ind2sub(ind):
     r = (ind % NUM_TILES)
@@ -10,6 +11,18 @@ def ind2sub(ind):
 def sub2ind(sub):
     r, c = sub
     return r + NUM_TILES*c
+
+def int2act(integ):
+    if integ == 0:
+        action = 'up'
+    elif integ == 1:
+        action = 'down'
+    elif integ == 2:
+        action = 'left'
+    elif integ == 3:
+        action = 'right'
+
+    return action
 
 class Agent(object):
     """
@@ -28,6 +41,63 @@ class RandomAgent(Agent):
         action = legal[random.randint(0, len(legal)-1)]
         return action
 
+class PIagent(Agent):
+    def __init__(self, mdp):
+        self.V = np.zeros(NUM_TILES*NUM_TILES)
+        self.mdp = mdp
+
+        self.pi = np.random.randint(0, NUM_ACTIONS, NUM_TILES**2)
+
+        #Policy Iteration assumes these are known
+        self.Psa = self.mdp.Psa
+        self.R = self.mdp.R
+
+    def policyEvaluation(self, k= 50):
+        V= self.V.copy()
+
+        for i in range(0,k):
+            V= [self.R[s] + self.mdp.discount * np.dot(self.Psa[self.pi[s],s,:], V) \
+             for s in range(0, NUM_TILES**2)]
+
+        return V
+
+
+    def policyIteration(self, TOL= 0.01):
+        #c= 0
+        oldPI = self.pi.copy()
+        while True:
+            #Set values:
+            self.V = self.policyEvaluation()
+
+            #Update policy
+            for s in range(0, len(self.V)):
+                if s == 12:
+                    pass
+
+                legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
+                u = np.dot(self.Psa[:, s, :], self.V)
+                sortu = np.argsort(u)[::-1]
+                for idx in sortu:
+                    if idx in legal:
+                        a = idx
+                        break
+
+                self.pi[s] = a
+
+            diff = np.linalg.norm(self.pi - oldPI)
+            print(diff)
+            if diff < TOL:
+                #break
+                break
+
+            oldPI = self.pi.copy()
+
+    def act(self, state):
+        integ = self.pi[sub2ind(state.pos)]
+        return int2act(integ)
+
+
+
 class VIagent(Agent):
     """
     Agent that performs Value Iteration.
@@ -39,10 +109,8 @@ class VIagent(Agent):
         #Value Iteration assumes these are known
         self.Psa = self.mdp.Psa
         self.R = self.mdp.R
-        pass
 
     def valueIteration(self, TOL= 0.01):
-        c= 0
         oldV = self.V.copy()
         while True:
             for state in range(0, len(self.V)):
@@ -122,7 +190,7 @@ class MDP(object):
         """
         Creates the true transition probability matrix for the MDP.
         """
-        Psa = np.zeros((4, NUM_TILES**2, NUM_TILES**2))
+        Psa = np.zeros((NUM_ACTIONS, NUM_TILES**2, NUM_TILES**2))
 
         for state in range(0, NUM_TILES**2):
             if ind2sub(state) in self.failTiles or \
@@ -224,10 +292,13 @@ ra = RandomAgent(mdp)
 vi = VIagent(mdp)
 vi.valueIteration()
 
+pi = PIagent(mdp)
+pi.policyIteration()
+
 currState = mdp.state
 while not currState.isEnd():
     #action= ra.act(currState)
-    action= vi.act(currState)
+    action= pi.act(currState)
     print(action)
     mdp.updateState(action)
     print(mdp.reward)
