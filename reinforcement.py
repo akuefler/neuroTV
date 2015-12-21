@@ -42,8 +42,22 @@ class Agent(object):
     """
     Abstract base class
     """
-    def act(self):
-        raise NotImplementedError
+    def __init__(self, mdp):
+        self.V = np.zeros(NUM_TILES*NUM_TILES)
+        self.mdp = mdp
+
+        self.policy = np.ones(NUM_TILES**2)*np.nan
+        for s in range(0, NUM_TILES**2):
+            legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
+            self.policy[s] = np.random.choice(legal)
+
+    def act(self, state, epsilon = 0):
+        if np.random.rand() > epsilon:
+            a = self.policy[sub2ind(state.pos)]
+        else:
+            legal= self.mdp.getLegalActions(state.pos, returnInts = True)
+            a = np.random.choice(legal)
+        return int2act(a)
 
 class RandomAgent(Agent):
     def __init__(self, mdp):
@@ -61,7 +75,6 @@ class PIagent(Agent):
         self.V = np.zeros(NUM_TILES*NUM_TILES)
         self.mdp = mdp
 
-        #self.pi = np.random.randint(0, NUM_ACTIONS, NUM_TILES**2)
         self.policy = np.ones(NUM_TILES**2)*np.nan
         for s in range(0, NUM_TILES**2):
             legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
@@ -89,8 +102,6 @@ class PIagent(Agent):
 
             #Update policy
             for s in range(0, len(self.V)):
-                if s == 12:
-                    pass
 
                 legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
                 u = np.dot(self.Psa[:, s, :], self.V)
@@ -103,20 +114,10 @@ class PIagent(Agent):
                 self.policy[s] = a
 
             diff = np.linalg.norm(self.policy - oldPI)
-            print(diff)
             if diff < TOL:
-                #break
                 break
 
             oldPI = self.policy.copy()
-
-    def act(self, state, epsilon = 0):
-        if np.random.rand() > epsilon:
-            a = self.policy[sub2ind(state.pos)]
-        else:
-            legal= self.mdp.getLegalActions(state.pos, returnInts = True)
-            a = np.random.choice(legal)
-        return int2act(a)
 
 
 class VIagent(Agent):
@@ -126,6 +127,8 @@ class VIagent(Agent):
     def __init__(self, mdp):
         self.V = np.zeros(NUM_TILES*NUM_TILES)
         self.mdp = mdp
+
+        self.policy = np.ones(NUM_TILES**2)*np.nan
 
         #Value Iteration assumes these are known
         self.Psa = self.mdp.Psa
@@ -141,55 +144,32 @@ class VIagent(Agent):
                     self.mdp.discount * expValue
 
             diff = np.linalg.norm(self.V - oldV)
-            print(diff)
             if diff < TOL:
                 break
 
             oldV = self.V.copy()
 
-        pass
+        #Set policy based on values.
+        for s in range(0, len(self.V)):
+            legal = self.mdp.getLegalActions(ind2sub(s),returnInts= True)
+            v = np.dot(self.Psa[:, s, :], self.V)
+            sortv = np.argsort(v)[::-1]
+            for idx in sortv:
+                if idx in legal:
+                    a = idx
+                    break
 
-    def act(self, state):
-        """
-        Pick actions as argmax of expected value of values found in value iteration.
-        """
-        legal = self.mdp.getLegalActions(state.pos, returnInts= True)
-        s = sub2ind(state.pos)
-        v = np.dot(self.Psa[:, s, :], self.V)
-        sortv = np.argsort(v)[::-1]
-        for idx in sortv:
-            if idx in legal:
-                a = idx
-                break
+            self.policy[s] = a
 
-        np.argmax(a)
 
-        if a == 0:
-            action = 'up'
-        elif a == 1:
-            action = 'down'
-        elif a == 2:
-            action = 'left'
-        elif a == 3:
-            action = 'right'
-
-        return action
 
 class MCagent(PIagent):
     """
     Monte Carlo reinforcement learning.
 
-    Subclass of PI agent.
-
-    ISSUE: It really just needs "act" from PIagent. Make this method of the superclass agent.
+    ISSUE: Should not inherit PIagent because PIagent knows Psa and R a priori.
     """
-    #def __init__(self, mdp):
-        #self.V
-        #self.mdp = mdp
-
-        #self.pi = np.random.randint(0, NUM_ACTIONS, NUM_TILES**2)
-
-    def estimate(self, k= 50):
+    def estimate(self, k= 50, epsilon= 0.2):
 
         C = np.zeros((NUM_ACTIONS, NUM_TILES**2, NUM_TILES**2))
         R = np.zeros(NUM_TILES**2)
@@ -200,7 +180,7 @@ class MCagent(PIagent):
             currState = mdp.state
             while not currState.isEnd():
                 s = copy.deepcopy(currState)
-                action = self.act(s, epsilon = 0.2)
+                action = self.act(s, epsilon = epsilon)
                 #print(action)
                 mdp.updateState(action)
                 currState = mdp.state
@@ -214,9 +194,39 @@ class MCagent(PIagent):
                 for s in range(0,Psa.shape[1]):
                     if sum(C[a,s,:])>0:
                         Psa[a,s,:] = C[a,s,:]/sum(C[a,s,:])
-            self.R = R
 
-        pass
+            self.Psa = Psa
+            self.R = R
+            self.policyIteration()
+
+
+class MFMCagent(PIagent):
+    def estimate(self, k = 50):
+
+        Q = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+
+        for i in range(0, k):
+            ##ISSUE: Can I do this with an mdp method? e.g., "simulate"
+            mdp = copy.deepcopy(self.mdp)
+            currState = mdp.state
+
+            utility = 0
+            t = 0
+            while not currState.isEnd():
+                state = copy.deepcopy(currState)
+                action = self.act(state, epsilon = 0.2)
+                #print(action)
+                mdp.updateState(action)
+                currState = mdp.state
+
+                #Update u
+                u += (mdp.discount**t)*currState.getReward()
+                t += 1
+
+                #Update Q
+                s = sub2ind(state.pos)
+                a = act2int(action)
+                Q[s,a] -= eta*(Q[s, a] - utility)
 
 
 class MDP(object):
@@ -342,6 +352,7 @@ class State(MDP):
         return self.pos in self.mdp.goalTiles or self.pos in self.mdp.failTiles
 
     def getReward(self):
+        ##ISSUE: Perhaps redundant, given R in mdp. But this is nicer if I don't want an agent to ever touch "R".
         reward = 0
         if self.pos in self.mdp.failTiles:
             reward = -10
@@ -364,7 +375,7 @@ pi = PIagent(mdp)
 pi.policyIteration()
 
 mc = MCagent(mdp)
-mc.estimate(k = 1000)
+mc.estimate(k = 50, epsilon= 0.2)
 mc.policyIteration()
 
 currState = mdp.state
