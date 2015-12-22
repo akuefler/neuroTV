@@ -64,6 +64,18 @@ class Agent(object):
             a = np.random.choice(legal)
         return int2act(a)
 
+
+    def updatePolicy(self, s, u):
+            legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
+            sortu = np.argsort(u)[::-1]
+            for idx in sortu:
+                if idx in legal:
+                    a = idx
+                    break
+
+            self.policy[s] = a
+
+
 class RandomAgent(Agent):
     def __init__(self, mdp):
         self.mdp = mdp
@@ -106,17 +118,9 @@ class PIagent(Agent):
             self.V = self.policyEvaluation()
 
             #Update policy
-            for s in range(0, len(self.V)):
-
-                legal = self.mdp.getLegalActions(ind2sub(s), returnInts= True)
+            for s in range(0, len(self.policy)):
                 u = np.dot(self.Psa[:, s, :], self.V)
-                sortu = np.argsort(u)[::-1]
-                for idx in sortu:
-                    if idx in legal:
-                        a = idx
-                        break
-
-                self.policy[s] = a
+                self.updatePolicy(s, u)
 
             diff = np.linalg.norm(self.policy - oldPI)
             if diff < TOL:
@@ -212,7 +216,7 @@ class MFMCagent(Agent):
     def estimate(self, k = 5000, epsilon= 0):
         ##ISSUE: Once I have Q's, don't know what to use them for...
 
-        Q = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+        Q = np.zeros((NUM_ACTIONS, NUM_TILES**2))
         updates = np.zeros((NUM_TILES**2, NUM_ACTIONS))
 
         for i in range(0, k):
@@ -242,13 +246,13 @@ class MFMCagent(Agent):
 
                 #Update Q
                 ##ISSUE: Should I wait to end of episode?
-                Q[s,a] -= eta*(Q[s, a] - utility)
+                Q[a,s] -= eta*(Q[a, s] - utility)
 
         self.Q = Q
 
 class SARSAagent(Agent):
     def estimate(self, k = 5000, epsilon= 0):
-        Q = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+        Q = np.zeros((NUM_ACTIONS, NUM_TILES**2))
         updates = np.zeros((NUM_TILES**2, NUM_ACTIONS))
 
         for i in range(0, k):
@@ -276,12 +280,51 @@ class SARSAagent(Agent):
                 eta = 1.0/math.sqrt(updates[s, a])
 
                 #Update Q
-                Q[s, a] += eta*(r + mdp.discount*Q[s_, a_] - Q[s, a])
+                Q[a, s] += eta*(r + mdp.discount*Q[a_, s_] - Q[a, s])
 
                 if currState.isEnd():
                     break
 
         self.Q = Q
+
+class QLagent(Agent):
+    def estimate(self, k = 5000, epsilon= 0):
+        Qopt = np.zeros((NUM_ACTIONS, NUM_TILES**2))
+        updates = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+
+        for i in range(0, k):
+            mdp = copy.deepcopy(self.mdp)
+            currState = mdp.state
+
+            utility = 0
+            t = 0
+            while True:
+                state = copy.deepcopy(currState)
+                action = self.act(state, epsilon = epsilon)
+                mdp.updateState(action)
+                currState = mdp.state
+
+                ##Update u
+                s = sub2ind(state.pos)
+                a = act2int(action)
+                r = currState.getReward()
+
+                #Define learning rate
+                updates[s,a] += 1
+                eta = 1.0/math.sqrt(updates[s, a])
+
+                #Update Q
+                Vopt = max(Qopt[:, sub2ind(currState.pos)])
+                Qopt[a, s] += eta*(r + mdp.discount*Vopt - Qopt[a, s])
+
+                if currState.isEnd():
+                    break
+
+        #Update policy based on Qopt
+        for s in range(0, len(self.policy)):
+            q = Qopt[:,s]
+            self.updatePolicy(s, q)
+
 
 class MDP(object):
     def __init__(self, startPos, goalTiles, failTiles, slipTiles, discount = 0.95):
@@ -428,9 +471,9 @@ vi.valueIteration()
 pi = PIagent(mdp)
 pi.policyIteration()
 
-#mc = MCagent(mdp)
-#mc.estimate(k = 50, epsilon= 0.2)
-#mc.policyIteration()
+mc = MCagent(mdp)
+mc.estimate(k = 50, epsilon= 0.2)
+mc.policyIteration()
 
 mfmc = MFMCagent(mdp)
 mfmc.policy = pi.policy
@@ -441,13 +484,15 @@ sarsa = SARSAagent(mdp)
 sarsa.policy = pi.policy
 sarsa.estimate(k= 5000, epsilon= 0.2)
 
+ql = QLagent(mdp)
+ql.estimate(k= 5000, epsilon= 1)
+
 currState = mdp.state
 while not currState.isEnd():
     #action= ra.act(currState)
-    action= mfmc.act(currState)
+    action= ql.act(currState)
     print(action)
     mdp.updateState(action)
     print(mdp.reward)
     currState = mdp.state
     print(currState.pos)
-
