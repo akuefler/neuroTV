@@ -1,9 +1,14 @@
 import random
 import numpy as np
 import copy
+import math
 
 NUM_TILES = 4
 NUM_ACTIONS = 4
+
+FAIL = -10
+WIN = 10
+NEUTRAL = -1
 
 def ind2sub(ind):
     r = (ind % NUM_TILES)
@@ -200,10 +205,15 @@ class MCagent(PIagent):
             self.policyIteration()
 
 
-class MFMCagent(PIagent):
-    def estimate(self, k = 50):
+class MFMCagent(Agent):
+    """
+    Just computes a Q matrix for a given policy.
+    """
+    def estimate(self, k = 5000, epsilon= 0):
+        ##ISSUE: Once I have Q's, don't know what to use them for...
 
         Q = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+        updates = np.zeros((NUM_TILES**2, NUM_ACTIONS))
 
         for i in range(0, k):
             ##ISSUE: Can I do this with an mdp method? e.g., "simulate"
@@ -214,20 +224,64 @@ class MFMCagent(PIagent):
             t = 0
             while not currState.isEnd():
                 state = copy.deepcopy(currState)
-                action = self.act(state, epsilon = 0.2)
+                action = self.act(state, epsilon = epsilon)
                 #print(action)
                 mdp.updateState(action)
                 currState = mdp.state
 
                 #Update u
-                u += (mdp.discount**t)*currState.getReward()
+                utility += (mdp.discount**t)*currState.getReward()
                 t += 1
-
-                #Update Q
                 s = sub2ind(state.pos)
                 a = act2int(action)
+
+                #Define learning rate
+                updates[s,a] += 1
+                eta = 1.0/math.sqrt(updates[s, a])
+                #eta = 1.0/(1 + updates[s, a]) ##ISSUE: Not sure if I want t here.
+
+                #Update Q
+                ##ISSUE: Should I wait to end of episode?
                 Q[s,a] -= eta*(Q[s, a] - utility)
 
+        self.Q = Q
+
+class SARSAagent(Agent):
+    def estimate(self, k = 5000, epsilon= 0):
+        Q = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+        updates = np.zeros((NUM_TILES**2, NUM_ACTIONS))
+
+        for i in range(0, k):
+            ##ISSUE: Can I do this with an mdp method? e.g., "simulate"
+            mdp = copy.deepcopy(self.mdp)
+            currState = mdp.state
+
+            utility = 0
+            t = 0
+            while True:
+                state = copy.deepcopy(currState)
+                action = self.act(state, epsilon = epsilon)
+                mdp.updateState(action)
+                currState = mdp.state
+
+                #Update u
+                s = sub2ind(state.pos)
+                a = act2int(action)
+                r = currState.getReward()
+                s_ = sub2ind(currState.pos)
+                a_ = act2int(self.act(currState, epsilon= epsilon))
+
+                #Define learning rate
+                updates[s,a] += 1
+                eta = 1.0/math.sqrt(updates[s, a])
+
+                #Update Q
+                Q[s, a] += eta*(r + mdp.discount*Q[s_, a_] - Q[s, a])
+
+                if currState.isEnd():
+                    break
+
+        self.Q = Q
 
 class MDP(object):
     def __init__(self, startPos, goalTiles, failTiles, slipTiles, discount = 0.95):
@@ -252,11 +306,11 @@ class MDP(object):
                 pass
 
             if ind2sub(state) in self.failTiles:
-                R[state] = -10
+                R[state] = FAIL
             elif ind2sub(state) in self.goalTiles:
-                R[state] = 10
+                R[state] = WIN
             else:
-                R[state] = -1
+                R[state] = NEUTRAL
 
         return R
 
@@ -355,11 +409,11 @@ class State(MDP):
         ##ISSUE: Perhaps redundant, given R in mdp. But this is nicer if I don't want an agent to ever touch "R".
         reward = 0
         if self.pos in self.mdp.failTiles:
-            reward = -10
+            reward = FAIL
         elif self.pos in self.mdp.goalTiles:
-            reward = 10
+            reward = WIN
         else:
-            reward = -1
+            reward = NEUTRAL
 
         return reward
 
@@ -374,14 +428,23 @@ vi.valueIteration()
 pi = PIagent(mdp)
 pi.policyIteration()
 
-mc = MCagent(mdp)
-mc.estimate(k = 50, epsilon= 0.2)
-mc.policyIteration()
+#mc = MCagent(mdp)
+#mc.estimate(k = 50, epsilon= 0.2)
+#mc.policyIteration()
+
+mfmc = MFMCagent(mdp)
+mfmc.policy = pi.policy
+mfmc.estimate(k = 5000, epsilon= 0.2)
+#mfmc.policyIteration()
+
+sarsa = SARSAagent(mdp)
+sarsa.policy = pi.policy
+sarsa.estimate(k= 5000, epsilon= 0.2)
 
 currState = mdp.state
 while not currState.isEnd():
     #action= ra.act(currState)
-    action= mc.act(currState)
+    action= mfmc.act(currState)
     print(action)
     mdp.updateState(action)
     print(mdp.reward)
